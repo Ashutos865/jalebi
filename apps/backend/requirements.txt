@@ -1,0 +1,26 @@
+# --- Core (required; the whole app runs on these with SQLite + mock provider) ---
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.29,<1.0
+pydantic>=2.6,<3.0
+SQLAlchemy>=2.0,<3.0
+aiosqlite>=0.19            # async SQLite driver (dev/default DB)
+greenlet>=3.0             # required by SQLAlchemy async
+alembic>=1.13             # database migrations
+PyJWT>=2.8                # auth tokens
+python-multipart>=0.0.9   # form parsing
+python-dotenv>=1.0        # auto-load .env
+httpx>=0.27               # Google OAuth + Slack/Teams webhooks
+
+# --- AI providers (install the ones you use) ---
+anthropic>=0.40           # Claude (default recommended provider)
+# openai>=1.40            # GPT + all OpenAI-compatible: Ollama/OpenRouter/Groq/Together/DeepSeek/Mistral/xAI
+# google-genai>=0.3       # Gemini
+
+# --- Production add-ons (optional) ---
+# asyncpg>=0.29           # Postgres driver (postgresql+asyncpg://...)
+# qdrant-client>=1.9      # vector DB for the knowledge base (set QDRANT_URL)
+# sentry-sdk>=2.0         # error monitoring (set SENTRY_DSN)
+# gunicorn>=22.0          # multi-worker process manager (see docs/DEPLOYMENT.md §4)
+
+# --- Dev / test ---
+pytest>=8.0

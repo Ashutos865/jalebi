@@ -1,0 +1,23 @@
+# Caddy reverse proxy — automatic HTTPS (Let's Encrypt) in front of Jalebi.
+# Replace jalebi.example.com with your domain, point DNS at the VPS, then:
+#   caddy run --config ./Caddyfile
+# Caddy provisions and renews the TLS cert automatically.
+
+jalebi.example.com {
+    encode gzip
+
+    # Backend API + dashboard.
+    reverse_proxy 127.0.0.1:8000
+
+    # Security headers (backend also sets its own; these are belt-and-suspenders).
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    log {
+        output file /var/log/caddy/jalebi.log
+    }
+}

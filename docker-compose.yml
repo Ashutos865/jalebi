@@ -1,0 +1,54 @@
+# Local production-like stack: backend + Postgres + Qdrant.
+#   docker compose up --build
+# The backend still runs standalone (SQLite + in-memory store) without this.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: jalebi
+      POSTGRES_PASSWORD: jalebi
+      POSTGRES_DB: jalebi
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jalebi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333"]
+    volumes: ["qdrantdata:/qdrant/storage"]
+
+  # Specialized grammar/style engine for the inline extension (POST /api/check).
+  languagetool:
+    image: erikvl87/languagetool:latest
+    ports: ["8010:8010"]
+    environment:
+      langtool_languageModel: /ngrams   # optional n-gram data mount for better accuracy
+      Java_Xms: 512m
+      Java_Xmx: 1g
+
+  backend:
+    build: ./apps/backend
+    ports: ["8000:8000"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      JALEBI_ENV: production
+      JALEBI_DATABASE_URL: postgresql+asyncpg://jalebi:jalebi@db:5432/jalebi
+      JALEBI_AUTO_CREATE: "false"        # Alembic owns the schema (see Dockerfile CMD)
+      QDRANT_URL: http://qdrant:6333
+      JALEBI_LANGUAGETOOL_URL: http://languagetool:8010
+      JALEBI_JWT_SECRET: ${JALEBI_JWT_SECRET:-change-me-please}
+      JALEBI_ADMIN_EMAILS: ${JALEBI_ADMIN_EMAILS:-}
+      JALEBI_PROVIDER: ${JALEBI_PROVIDER:-mock}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+
+volumes:
+  pgdata:
+  qdrantdata:

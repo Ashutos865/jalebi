@@ -1,0 +1,138 @@
+@import 'tailwindcss';
+
+/* Drive Tailwind's `dark:` variant from the resolved data-theme (set by useTheme),
+   so manual overrides and the OS setting behave identically. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* Jalebi design tokens (Tailwind v4 @theme). */
+@theme {
+  --color-jalebi-50: #fff7ed;
+  --color-jalebi-100: #ffedd5;
+  --color-jalebi-300: #fdba74;
+  --color-jalebi-400: #fb9d3e;
+  --color-jalebi-500: #ff9933; /* brand */
+  --color-jalebi-600: #e67e00;
+  --color-jalebi-700: #b45309;
+}
+
+/* Theme surfaces — liquid-glass, adapts to light/dark. */
+:root {
+  --surface: 255 255 255;
+  --surface-2: 248 246 243;
+  --ink: 24 24 27;
+  --ink-soft: 113 113 122;
+  --line: 0 0 0;
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-brd: rgba(0, 0, 0, 0.06);
+  --page: 244 244 246;
+  --card-bg: 255 255 255;
+  --card-brd: rgba(0, 0, 0, 0.05);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: 17 18 22;
+    --surface-2: 24 25 31;
+    --ink: 244 244 245;
+    --ink-soft: 161 161 170;
+    --line: 255 255 255;
+    --glass-bg: rgba(20, 21, 27, 0.72);
+    --glass-brd: rgba(255, 255, 255, 0.08);
+    --page: 12 13 17;
+    --card-bg: 23 24 29;
+    --card-brd: rgba(255, 255, 255, 0.06);
+    color-scheme: dark;
+  }
+}
+
+/* Manual override wins over the media default. */
+:root[data-theme='light'] {
+  --surface: 255 255 255;
+  --surface-2: 248 246 243;
+  --ink: 24 24 27;
+  --ink-soft: 113 113 122;
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-brd: rgba(0, 0, 0, 0.06);
+  --page: 244 244 246;
+  --card-bg: 255 255 255;
+  --card-brd: rgba(0, 0, 0, 0.05);
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  --surface: 17 18 22;
+  --surface-2: 24 25 31;
+  --ink: 244 244 245;
+  --ink-soft: 161 161 170;
+  --glass-bg: rgba(20, 21, 27, 0.72);
+  --glass-brd: rgba(255, 255, 255, 0.08);
+  --page: 12 13 17;
+  --card-bg: 23 24 29;
+  --card-brd: rgba(255, 255, 255, 0.06);
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  color: rgb(var(--ink));
+  background: rgb(var(--page));
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Reusable glass panel (used for the sticky header). */
+.glass {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-brd);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+/* iOS-style card (from the reference UIs): white, big radius, soft shadow. */
+.card {
+  background: rgb(var(--card-bg));
+  border: 1px solid var(--card-brd);
+  border-radius: 24px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.05);
+}
+
+.ink-soft {
+  color: rgb(var(--ink-soft));
+}
+
+@keyframes jalebi-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.jalebi-spin {
+  animation: jalebi-spin 0.9s linear infinite;
+}
+
+@keyframes jalebi-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.jalebi-pulse {
+  animation: jalebi-pulse 1.4s ease-in-out infinite;
+}
+
+/* Thin, unobtrusive scrollbar. */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--line), 0.18);
+  border-radius: 9999px;
+}
