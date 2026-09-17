@@ -94,6 +94,9 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
     paras = _paragraphs(text)
     words = _WORD.findall(text)
     wc = len(words)
+    # Short-form pieces are governed by the TIES Content SOP; some Constitution
+    # rules (bullet penalty, length rewards) deliberately do not apply to them.
+    short_form = C.is_short_form(content_type)
 
     issues: List[RuleIssue] = []
     caps: List[CapHit] = []
@@ -101,9 +104,9 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
 
     # ── sourcing signals ──────────────────────────────────────────────────
     attributions = sum(low.count(m) for m in C.ATTRIBUTION_MARKERS)
-    tiers_present = sorted(
-        t for t, terms in C.SOURCE_TIERS.items() if any(x in low for x in terms)
-    )
+    # Word-boundary matching: plain substrings scored "went to university" as a
+    # Tier 3 media source.
+    tiers_present = C.tiers_present(text)
     best_tier = tiers_present[0] if tiers_present else 99
 
     # ── Research Accuracy (rule part) ─────────────────────────────────────
@@ -234,9 +237,11 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
             "Inconsistent spelling looks unedited.",
             f"Use “{b}”.", "low", a,
         ))
-    # excessive bullets
+    # Excessive bullets — long-form only. The TIES Content SOP requires bulleted
+    # key takeaways in short-form pieces, so penalising them there would mark a
+    # writer down for following the SOP.
     bullet_lines = len(re.findall(r"(?m)^\s*[-*•]\s+", text))
-    if bullet_lines >= 6 and bullet_lines > len(paras):
+    if not short_form and bullet_lines >= 6 and bullet_lines > len(paras):
         wq -= 10
         issues.append(RuleIssue(
             "writing", "Over-reliance on bullet lists",
@@ -307,10 +312,13 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
 
     # ── Depth (rule part) ─────────────────────────────────────────────────
     dep = 55.0
-    if wc > 800:
-        dep += 10
-    if wc > 1500:
-        dep += 10
+    # Length rewards are long-form only: the SOP caps short-form at ~350 words,
+    # so an 800-word bonus would push writers to violate their own brief.
+    if not short_form:
+        if wc > 800:
+            dep += 10
+        if wc > 1500:
+            dep += 10
     mech = ["because", "therefore", "however", "incentive", "system", "mechanism",
             "history", "economics", "psychology", "structural", "underlying",
             "consequence", "trade-off", "trade off", "cause", "effect", "why"]

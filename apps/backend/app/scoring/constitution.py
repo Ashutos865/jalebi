@@ -6,7 +6,9 @@ changes how the editor scores — this is the single tunable source of truth.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Dict, List
 
 # ── Dimensions ───────────────────────────────────────────────────────────────
@@ -72,6 +74,68 @@ def weights_for(content_type: str) -> Dict[str, float]:
     return WEIGHTS_BY_TYPE.get(content_type, DEFAULT_WEIGHTS)
 
 
+# ── Research-integrity caps (TIES Content SOP §2, §4, "Zero-Tolerance") ──────
+# AI-generated text must not exceed 20% of the article; plagiarism must be under
+# 15%. These are recorded from a real checker (Quillbot / CopyLeaks /
+# SmallSEOTools / DupliChecker), never estimated by Jalebi.
+MAX_AI_PERCENT = 20.0
+MAX_PLAGIARISM_PERCENT = 15.0
+
+
+def integrity_verdict(ai_percent, plagiarism_percent) -> dict:
+    """Judge recorded AI/plagiarism percentages against the SOP caps.
+
+    `unchecked` is a distinct state from a pass: an article nobody has run
+    through a checker has not satisfied the SOP, it simply has no result yet.
+    """
+    if ai_percent is None or plagiarism_percent is None:
+        return {
+            "checked": False, "passed": False, "breaches": [],
+            "ai_percent": ai_percent, "plagiarism_percent": plagiarism_percent,
+            "ai_limit": MAX_AI_PERCENT, "plagiarism_limit": MAX_PLAGIARISM_PERCENT,
+        }
+
+    breaches = []
+    if ai_percent > MAX_AI_PERCENT:
+        breaches.append(
+            f"AI-generated content is {ai_percent:.0f}% — the SOP allows at most "
+            f"{MAX_AI_PERCENT:.0f}%."
+        )
+    if plagiarism_percent > MAX_PLAGIARISM_PERCENT:
+        breaches.append(
+            f"Plagiarism is {plagiarism_percent:.0f}% — the SOP requires under "
+            f"{MAX_PLAGIARISM_PERCENT:.0f}%."
+        )
+    return {
+        "checked": True, "passed": not breaches, "breaches": breaches,
+        "ai_percent": ai_percent, "plagiarism_percent": plagiarism_percent,
+        "ai_limit": MAX_AI_PERCENT, "plagiarism_limit": MAX_PLAGIARISM_PERCENT,
+    }
+
+
+# ── Short-form (TIES Content SOP) ────────────────────────────────────────────
+# The SOP governs standard short-form analytical articles: 300–350 words, with
+# "innovative bullet points, numbered lists, or key takeaways" required.
+#
+# Two Constitution-derived rules conflict with that and must not apply here:
+#   * the bullet-list penalty  (SOP mandates bulleted takeaways)
+#   * the length reward at 800/1500 words (SOP caps the piece at ~350)
+# Long-form types keep both, where "prefer flowing prose" and "reward depth"
+# remain the right call.
+SHORT_FORM_TYPES = frozenset({
+    "breaking_news", "analysis", "opinion",
+    "instagram_script", "twitter_thread", "linkedin_article",
+})
+
+# SOP word window for short-form pieces (inclusive).
+SHORT_FORM_WORD_MIN = 300
+SHORT_FORM_WORD_MAX = 350
+
+
+def is_short_form(content_type: str) -> bool:
+    return content_type in SHORT_FORM_TYPES
+
+
 # ── Hard caps (Constitution §C) ──────────────────────────────────────────────
 # code -> (score ceiling, human label). A triggered cap limits the FINAL score to
 # at most the ceiling, regardless of everything else.
@@ -119,16 +183,58 @@ def band_for(score: int):
 # tier -> substrings (lowercase) that signal a source of that tier.
 SOURCE_TIERS: Dict[int, List[str]] = {
     1: ["government", "ministry", "court", "supreme court", "judgment", "legislation",
-        "official statistics", "census", "peer-reviewed", "journal of", "filing",
-        "annual report", "gazette", "parliament", "regulator"],
+        "official statistics", "census", "peer-reviewed", "peer reviewed",
+        "journal of", "filing", "annual report", "gazette", "parliament",
+        "regulator",
+        # The TIES Content SOP names Google Scholar as the primary route to
+        # peer-reviewed research and empirical data.
+        "google scholar", "scholar.google", "doi.org", "pubmed", "arxiv",
+        "rbi", "reserve bank of india", "niti aayog", "sebi", "trai"],
     2: ["reuters", "associated press", "(ap)", "afp", "bloomberg", "pti",
         "press trust of india"],
     3: ["new york times", "the guardian", "bbc", "the hindu", "financial times",
-        "washington post", "university", "institute", "think tank", "council on"],
+        "washington post", "university", "institute", "think tank", "council on",
+        # Verified media houses named in the TIES Content SOP.
+        "indian express", "firstpost", "the print", "scroll.in", "mint",
+        "business standard", "economic times", "hindustan times"],
     4: ["expert", "professor", "analyst", "industry report", "according to a report"],
     5: ["blog", "op-ed", "opinion piece", "medium.com", "substack"],
     6: ["twitter", "x.com", "facebook", "instagram", "tiktok", "telegram", "whatsapp"],
 }
+
+@lru_cache(maxsize=1)
+def _tier_patterns() -> Dict[int, "re.Pattern[str]"]:
+    """Word-boundary matchers per tier.
+
+    Plain substring matching produced false positives that scored the top media
+    tier: "he went to university" matched "university", "the hospital" matched
+    "pti". Boundaries are only applied where the term starts/ends with a word
+    character, so "(ap)" and "scholar.google" still match literally.
+    """
+    out: Dict[int, "re.Pattern[str]"] = {}
+    for tier, terms in SOURCE_TIERS.items():
+        parts = []
+        for term in terms:
+            esc = re.escape(term)
+            if term[:1].isalnum():
+                esc = r"\b" + esc
+            if term[-1:].isalnum():
+                esc = esc + r"\b"
+            parts.append(esc)
+        out[tier] = re.compile("|".join(parts), re.IGNORECASE)
+    return out
+
+
+def tiers_present(text: str) -> List[int]:
+    """Source tiers cited anywhere in `text`, best (lowest number) first."""
+    return sorted(t for t, pat in _tier_patterns().items() if pat.search(text))
+
+
+def best_tier(text: str) -> int:
+    """Best source tier cited, or 99 when none is found."""
+    found = tiers_present(text)
+    return found[0] if found else 99
+
 
 # Words/patterns that signal an attribution is present near a claim.
 ATTRIBUTION_MARKERS = [

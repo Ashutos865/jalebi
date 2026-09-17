@@ -92,6 +92,13 @@ $('devbtn').onclick=async()=>{try{const d=await api('/auth/dev-login',{method:'P
 $('tokbtn').onclick=()=>{setToken($('token').value.trim());boot();};
 $('logout').onclick=()=>{setToken('');ME=null;show('login');};
 
+// Escape before interpolating into innerHTML. Document titles and URLs come
+// from /api/evaluate, which is unauthenticated by default, so a writer could
+// otherwise plant script that runs in an admin's browser.
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+// Only http(s) links are rendered; "javascript:" and friends are dropped.
+function safeUrl(u){const s=String(u==null?'':u);return /^https?:\/\//i.test(s)?esc(s):'';}
+
 const TABS=[['overview','Overview'],['documents','Documents'],['writers','Writers'],['issues','Issues'],['providers','AI Usage'],['knowledge','Knowledge'],['rubrics','Rubrics'],['users','Users'],['logs','Logs']];
 function renderTabs(){$('tabs').innerHTML='';TABS.forEach(([id,label])=>{const b=document.createElement('div');b.className='tab';b.textContent=label;b.onclick=()=>openTab(id);b.dataset.id=id;$('tabs').appendChild(b);});}
 function activeTab(id){[...document.querySelectorAll('.tab')].forEach(t=>t.classList.toggle('active',t.dataset.id===id));}
@@ -113,32 +120,49 @@ const RENDER={
    html+='</div>';v.innerHTML=html;},
  async documents(v){const rows=await api('/documents');
    const ST=['draft','under_review','finalized','published'];
-   let html='<div class=card><h2>Content tracker ('+rows.length+')</h2><p class=muted style=font-size:12px>Jalebi\\'s living version of the TIES content sheet — link, status, editor, and score trend across revisions. Auto-suggested status from the latest review.</p><div style=overflow-x:auto><table><tr><th>Article</th><th>Type</th><th>Status</th><th>Editor</th><th>Published for</th><th>Latest</th><th>Trend</th><th>Revs</th><th></th></tr>';
-   rows.forEach(d=>{const t=d.trend>0?('▲ +'+d.trend):(d.trend<0?('▼ '+d.trend):'–');const tc=d.trend>0?'#10b981':(d.trend<0?'#f43f5e':'var(--soft)');const gid=d.google_doc_id;
-     const opts=ST.map(s=>`<option ${s===d.status?'selected':''}>${s}</option>`).join('');
-     const hint=d.suggested_status&&d.suggested_status!==d.status?`<div class=muted style=font-size:10px>suggests: ${d.suggested_status}</div>`:'';
-     html+=`<tr><td><a href="${d.url}" target=_blank rel=noopener style=color:var(--jalebi600)>${d.title}</a></td><td>${d.content_type||'-'}</td>`+
-       `<td><select class=dstatus data-g="${gid}">${opts}</select>${hint}</td>`+
-       `<td><input class=deditor data-g="${gid}" value="${d.editor||''}" style=width:110px placeholder=editor></td>`+
-       `<td><input class=dpub data-g="${gid}" value="${d.published_for||''}" style=width:110px placeholder="e.g. Finties"></td>`+
-       `<td><b>${d.latest_score??'-'}</b></td><td style="color:${tc}">${t}</td><td>${d.revisions}</td>`+
+   const sla=d=>{const s=d.sla||{};if(!s.phase)return '<span class=muted>–</span>';
+     const h=s.hours_remaining;
+     if(s.overdue)return `<span style="color:#f43f5e;font-weight:700">OVERDUE ${Math.abs(Math.round(h))}h</span><div class=muted style=font-size:10px>${esc(s.phase)}</div>`;
+     if(s.at_risk)return `<span style="color:#f59e0b;font-weight:700">${Math.round(h)}h left</span><div class=muted style=font-size:10px>${esc(s.phase)}</div>`;
+     return `<span style="color:#10b981">${Math.round(h)}h left</span><div class=muted style=font-size:10px>${esc(s.phase)}</div>`;};
+   const integ=d=>{const i=d.integrity||{};if(!i.checked)return '<span class=muted title="Not yet checked">–</span>';
+     const col=i.passed?'#10b981':'#f43f5e';
+     return `<span style="color:${col}">AI ${i.ai_percent}% / Plag ${i.plagiarism_percent}%</span>`;};
+   const overdue=rows.filter(d=>(d.sla||{}).overdue).length;
+   let html='<div class=card><h2>Content tracker ('+rows.length+')</h2><p class=muted style=font-size:12px>Jalebi\\'s living version of the TIES content sheet — the production loop, SLA against the SOP\\'s 12/18h and 10/12h windows, integrity results, and score trend.</p>';
+   if(overdue)html+=`<p style="color:#f43f5e;font-weight:700">${overdue} article${overdue>1?'s':''} past the SOP window.</p>`;
+   html+='<div style=overflow-x:auto><table><tr><th>Article</th><th>Status</th><th>SLA</th><th>Assigned to</th><th>Integrity</th><th>Editor</th><th>Latest</th><th>Trend</th><th>Revs</th><th></th></tr>';
+   rows.forEach(d=>{const t=d.trend>0?('▲ +'+d.trend):(d.trend<0?('▼ '+d.trend):'–');const tc=d.trend>0?'#10b981':(d.trend<0?'#f43f5e':'var(--soft)');const gid=esc(d.google_doc_id);
+     const opts=ST.map(s=>`<option ${s===d.status?'selected':''}>${esc(s)}</option>`).join('');
+     const hint=d.suggested_status&&d.suggested_status!==d.status?`<div class=muted style=font-size:10px>suggests: ${esc(d.suggested_status)}</div>`:'';
+     const u=safeUrl(d.url);
+     const title=u?`<a href="${u}" target=_blank rel=noopener style=color:var(--jalebi600)>${esc(d.title)}</a>`:esc(d.title);
+     const why=d.escalation_reason?`<div class=muted style=font-size:10px>${esc(d.escalation_reason)}</div>`:
+               (d.override_reason?`<div style="font-size:10px;color:#f59e0b">override: ${esc(d.override_reason)}</div>`:'');
+     html+=`<tr><td>${title}<div class=muted style=font-size:10px>${esc(d.content_type||'')}</div></td>`+
+       `<td><select class=dstatus data-g="${gid}">${opts}</select>${hint}${why}</td>`+
+       `<td>${sla(d)}</td>`+
+       `<td>${esc(d.assigned_to||'')||'<span class=muted>–</span>'}</td>`+
+       `<td>${integ(d)}</td>`+
+       `<td><input class=deditor data-g="${gid}" value="${esc(d.editor||'')}" style=width:110px placeholder=editor></td>`+
+       `<td><b>${d.latest_score==null?'-':esc(d.latest_score)}</b></td><td style="color:${tc}">${t}</td><td>${esc(d.revisions)}</td>`+
        `<td><button data-save="${gid}">Save</button></td></tr>`;});
    v.innerHTML=html+'</table></div></div>';
    v.querySelectorAll('[data-save]').forEach(b=>b.onclick=async()=>{const g=b.dataset.save;
-     const status=v.querySelector(`.dstatus[data-g="${g}"]`).value;const editor=v.querySelector(`.deditor[data-g="${g}"]`).value;const published_for=v.querySelector(`.dpub[data-g="${g}"]`).value;
-     await api('/documents/'+encodeURIComponent(g),{method:'PATCH',body:JSON.stringify({status,editor,published_for})});b.textContent='Saved';setTimeout(()=>b.textContent='Save',1200);});},
+     const status=v.querySelector(`.dstatus[data-g="${g}"]`).value;const editor=v.querySelector(`.deditor[data-g="${g}"]`).value;
+     await api('/documents/'+encodeURIComponent(g),{method:'PATCH',body:JSON.stringify({status,editor})});b.textContent='Saved';setTimeout(()=>b.textContent='Save',1200);});},
  async writers(v){const d=await api('/analytics/overview');let html='<div class=card><h2>Writer performance</h2><table><tr><th>Writer</th><th>Dept</th><th>Evals</th><th>Avg</th><th>Pass %</th></tr>';
-   (d.writers||[]).forEach(w=>html+=`<tr><td>${w.email}</td><td>${w.department||'-'}</td><td>${w.evaluations}</td><td>${w.avg_score}</td><td>${w.pass_rate}%</td></tr>`);
+   (d.writers||[]).forEach(w=>html+=`<tr><td>${esc(w.email)}</td><td>${esc(w.department||'-')}</td><td>${esc(w.evaluations)}</td><td>${esc(w.avg_score)}</td><td>${esc(w.pass_rate)}%</td></tr>`);
    v.innerHTML=html+'</table></div>';},
  async issues(v){const d=await api('/analytics/overview');let html='<div class=card><h2>Most common issues</h2><table><tr><th>Problem</th><th>Count</th></tr>';
-   (d.top_issues||[]).forEach(i=>html+=`<tr><td>${i.problem}</td><td>${i.count}</td></tr>`);
+   (d.top_issues||[]).forEach(i=>html+=`<tr><td>${esc(i.problem)}</td><td>${esc(i.count)}</td></tr>`);
    v.innerHTML=html+'</table></div>';},
  async providers(v){const u=await api('/admin/usage').catch(()=>({by_model:[]}));const p=await api('/providers');
    let html='<div class=card><h2>Active provider</h2><p><span class=pill>'+p.active+'</span></p></div>';
    html+='<div class=card style=margin-top:14px><h2>Evaluations by model</h2><table><tr><th>Provider</th><th>Model</th><th>Count</th></tr>';
-   (u.by_model||[]).forEach(r=>html+=`<tr><td>${r.provider}</td><td>${r.model||'-'}</td><td>${r.count}</td></tr>`);
+   (u.by_model||[]).forEach(r=>html+=`<tr><td>${esc(r.provider)}</td><td>${esc(r.model||'-')}</td><td>${esc(r.count)}</td></tr>`);
    html+='</table></div><div class=card style=margin-top:14px><h2>Available providers</h2><table><tr><th>Id</th><th>Label</th><th>Model</th><th>Open source</th><th>Available</th></tr>';
-   p.providers.forEach(x=>html+=`<tr><td>${x.id}</td><td>${x.label}</td><td>${x.model||'-'}</td><td>${x.open_source?'yes':''}</td><td>${x.available?'✅':''}</td></tr>`);
+   p.providers.forEach(x=>html+=`<tr><td>${esc(x.id)}</td><td>${esc(x.label)}</td><td>${esc(x.model||'-')}</td><td>${x.open_source?'yes':''}</td><td>${x.available?'✅':''}</td></tr>`);
    v.innerHTML=html+'</table></div>';},
  async knowledge(v){const rows=await api('/knowledge');
    let html='<div class=card><h2>Add knowledge</h2><div class=stack style=max-width:640px>'
@@ -146,23 +170,23 @@ const RENDER={
      +'<input id=ktitle placeholder=Title><textarea id=kcontent rows=5 placeholder="Editorial guidance / exemplar text…"></textarea>'
      +'<input id=kct placeholder="content type (optional, e.g. news_article)"><button id=kadd>Add & index</button></div></div>';
    html+='<div class=card style=margin-top:14px><h2>Knowledge base ('+rows.length+')</h2><table><tr><th>Kind</th><th>Title</th><th>Type</th><th>Chars</th></tr>';
-   rows.forEach(r=>html+=`<tr><td><span class=pill>${r.kind}</span></td><td>${r.title}</td><td>${r.content_type||'-'}</td><td>${r.chars}</td></tr>`);
+   rows.forEach(r=>html+=`<tr><td><span class=pill>${esc(r.kind)}</span></td><td>${esc(r.title)}</td><td>${esc(r.content_type||'-')}</td><td>${esc(r.chars)}</td></tr>`);
    v.innerHTML=html+'</table></div>';
    $('kadd').onclick=async()=>{await api('/knowledge',{method:'POST',body:JSON.stringify({kind:$('kkind').value,title:$('ktitle').value,content:$('kcontent').value,content_type:$('kct').value||null})});openTab('knowledge');};},
  async rubrics(v){const rows=await api('/admin/rubrics');let html='';
-   rows.forEach(r=>{html+=`<div class=card style=margin-bottom:12px><h2>${r.label} <span class=muted style=font-weight:400>(${r.content_type})</span></h2><table>`;
-     r.dimensions.forEach(d=>html+=`<tr><td style=width:200px>${d.name}</td><td><input data-ct=${r.content_type} data-key=${d.key} value=${d.weight} style=width:90px></td></tr>`);
+   rows.forEach(r=>{html+=`<div class=card style=margin-bottom:12px><h2>${esc(r.label)} <span class=muted style=font-weight:400>(${esc(r.content_type)})</span></h2><table>`;
+     r.dimensions.forEach(d=>html+=`<tr><td style=width:200px>${esc(d.name)}</td><td><input data-ct="${esc(r.content_type)}" data-key="${esc(d.key)}" value="${esc(d.weight)}" style=width:90px></td></tr>`);
      html+=`</table><button data-save=${r.content_type} style=margin-top:8px>Save weights</button></div>`;});
    v.innerHTML=html;
    v.querySelectorAll('[data-save]').forEach(b=>b.onclick=async()=>{const ct=b.dataset.save;const weights={};v.querySelectorAll(`[data-ct=${ct}]`).forEach(i=>weights[i.dataset.key]=parseFloat(i.value));
      await api('/admin/rubrics/'+ct,{method:'PUT',body:JSON.stringify({weights})});alert('Saved & renormalized');openTab('rubrics');});},
  async users(v){const rows=await api('/admin/users');let html='<div class=card><h2>Users</h2><table><tr><th>Email</th><th>Role</th><th>Dept</th><th></th></tr>';
-   rows.forEach(u=>html+=`<tr><td>${u.email}</td><td><select data-uid=${u.id} class=urole>${['writer','editor','admin'].map(r=>`<option ${r===u.role?'selected':''}>${r}</option>`).join('')}</select></td><td><input data-uid=${u.id} class=udept value="${u.department||''}" style=width:120px></td><td><button data-save=${u.id}>Save</button></td></tr>`);
+   rows.forEach(u=>html+=`<tr><td>${esc(u.email)}</td><td><select data-uid=${esc(u.id)} class=urole>${['writer','editor','admin'].map(r=>`<option ${r===u.role?'selected':''}>${r}</option>`).join('')}</select></td><td><input data-uid=${esc(u.id)} class=udept value="${esc(u.department||'')}" style=width:120px></td><td><button data-save=${esc(u.id)}>Save</button></td></tr>`);
    v.innerHTML=html+'</table></div>';
    v.querySelectorAll('[data-save]').forEach(b=>b.onclick=async()=>{const id=b.dataset.save;const role=v.querySelector(`.urole[data-uid="${id}"]`).value;const department=v.querySelector(`.udept[data-uid="${id}"]`).value;
      await api('/admin/users/'+id,{method:'PATCH',body:JSON.stringify({role,department})});alert('Saved');});},
  async logs(v){const rows=await api('/admin/logs');let html='<div class=card><h2>Audit log</h2><table><tr><th>When</th><th>Actor</th><th>Action</th><th>Target</th></tr>';
-   rows.forEach(r=>html+=`<tr><td class=muted>${(r.created_at||'').slice(0,19).replace('T',' ')}</td><td>${r.actor||'-'}</td><td><span class=pill>${r.action}</span></td><td>${r.target}</td></tr>`);
+   rows.forEach(r=>html+=`<tr><td class=muted>${esc((r.created_at||'').slice(0,19).replace('T',' '))}</td><td>${esc(r.actor||'-')}</td><td><span class=pill>${esc(r.action)}</span></td><td>${esc(r.target)}</td></tr>`);
    v.innerHTML=html+'</table></div>';},
 };
 window.addEventListener('message',e=>{if(e.data&&e.data.type==='jalebi-auth'){setToken(e.data.token);boot();}});

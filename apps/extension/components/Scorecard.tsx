@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { ScoreHero, GradientBars, SectionPill, Chip, PILL } from './vitals';
 import { SegmentedToggle, ImpactMeter, StatusPill, type PillTone } from './controls';
 import { Emoji, DIM_EMOJI } from './emoji';
+import { SopPanel } from './SopPanel';
 
 // Publication readiness → status-pill tone.
 const READINESS_TONE: Record<string, PillTone> = {
@@ -23,15 +24,21 @@ export function Scorecard({ result }: { result: EvaluationResult }) {
         <Verdict result={result} />
       </section>
 
+      {/* TIES SOP compliance — process checks, separate from the score.
+          Renders nothing when the document has no SOP header. */}
+      {result.sop && <SopPanel sop={result.sop} />}
+
       {/* Summary with metric chips */}
       <section className="card p-4">
         <SectionPill label="Summary" tone={PILL.summary} />
         <p className="mt-3 text-sm leading-relaxed">{result.summary}</p>
         <div className="mt-3 flex flex-wrap gap-1.5">
-          <Chip icon="words">{result.meta.word_count} words</Chip>
-          <Chip icon="provider">{result.meta.evaluator}</Chip>
+          <Chip icon="words">{result.meta.word_count ?? 0} words</Chip>
+          {result.meta.evaluator && (
+            <Chip icon="provider">{result.meta.evaluator}</Chip>
+          )}
           {result.meta.model && <Chip icon="model">{result.meta.model}</Chip>}
-          {result.meta.knowledge_used > 0 && (
+          {(result.meta.knowledge_used ?? 0) > 0 && (
             <Chip icon="kb">{result.meta.knowledge_used} SOP ref</Chip>
           )}
         </div>
@@ -71,9 +78,9 @@ export function Scorecard({ result }: { result: EvaluationResult }) {
       <BreakdownCard categories={result.categories} />
 
       <p className="ink-soft pb-2 text-center text-[10px]">
-        {result.meta.evaluator}
-        {result.meta.model ? ` · ${result.meta.model}` : ''} · schema v
-        {result.meta.schema_version}
+        {result.meta.evaluator ?? 'unknown'}
+        {result.meta.model ? ` · ${result.meta.model}` : ''}
+        {result.meta.schema_version ? ` · schema v${result.meta.schema_version}` : ''}
       </p>
     </div>
   );

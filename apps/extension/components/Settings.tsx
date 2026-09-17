@@ -43,14 +43,28 @@ export function Settings({ onClose }: { onClose: () => void }) {
   };
 
   const save = async () => {
-    await setBackendUrl(url);
+    let origin: string;
     try {
-      const origin = new URL(url).origin;
-      if (!/^https?:\/\/(localhost|127\.0\.0\.1)/.test(origin)) {
-        await chrome.permissions.request({ origins: [`${origin}/*`] });
-      }
+      origin = new URL(url).origin;
     } catch {
-      /* invalid URL or user declined — checkHealth will report */
+      setStatus('fail');
+      return;
+    }
+    const isLocal = /^https?:\/\/(localhost|127\.0\.0\.1)(:|$)/.test(origin);
+    // Document text is sent to this host, so refuse plaintext anywhere but a local
+    // dev server. The manifest only grants https origins on demand, so an http URL
+    // would otherwise fail later with no explanation.
+    if (!isLocal && !origin.startsWith('https://')) {
+      setStatus('fail');
+      return;
+    }
+    await setBackendUrl(url);
+    if (!isLocal) {
+      try {
+        await chrome.permissions.request({ origins: [`${origin}/*`] });
+      } catch {
+        /* user declined — checkHealth will report the failure */
+      }
     }
     setStatus('checking');
     setStatus((await checkHealth()) ? 'ok' : 'fail');

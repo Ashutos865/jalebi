@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.auth.deps import maybe_require_auth
+from app.analysis import factcheck, nation_first
 from app.analysis.analyzers import analyze_integrity
+from app.scoring import sop_header
 
 router = APIRouter(tags=["integrity"])
 
@@ -21,10 +23,55 @@ async def integrity(body: IntegrityIn, _=Depends(maybe_require_auth)) -> dict:
     text = body.text.strip()
     if not text:
         raise HTTPException(422, "Document text is empty.")
+    # Grade the article, not the SOP metadata block.
+    text = sop_header.scoring_text(text)
     report = analyze_integrity(text)
     return {
         "integrity_score": report.integrity_score,
         "citation_density": report.citation_density,
         "claims": report.claims[:50],
         "findings": [asdict(f) for f in report.findings[:100]],
+    }
+
+
+@router.post("/factcheck")
+async def factcheck_list(body: IntegrityIn, _=Depends(maybe_require_auth)) -> dict:
+    """The editor's fact-check worklist (SOP §4).
+
+    Every checkable claim with its nearest citation, ranked by how badly it
+    needs verification. This is a worklist, not a verdict: Jalebi does not fetch
+    URLs or decide whether a source supports a claim — the SOP assigns that to
+    the editor, who must click each link themselves.
+    """
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(422, "Document text is empty.")
+    worklist = factcheck.build(sop_header.scoring_text(text))
+    return {
+        "total_claims": worklist.total_claims,
+        "uncited_claims": worklist.uncited_claims,
+        "high_risk_count": len(worklist.high_risk),
+        "items": [asdict(i) for i in worklist.items[:100]],
+    }
+
+
+@router.post("/nation-first")
+async def nation_first_review(
+    body: IntegrityIn, _=Depends(maybe_require_auth)
+) -> dict:
+    """Nation-First review queue (SOP §4).
+
+    Raises unsourced disparagement or absolutes about national institutions for
+    the editor to judge. It never scores, and never flags sourced criticism:
+    evidence-based accountability reporting is what the SOP asks for, so only
+    "unverified rhetoric" is surfaced. The editorial decision stays human.
+    """
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(422, "Document text is empty.")
+    result = nation_first.review(sop_header.scoring_text(text))
+    return {
+        "needs_review": result.needs_review,
+        "sentences_examined": result.sentences_examined,
+        "flags": [asdict(f) for f in result.flags[:50]],
     }

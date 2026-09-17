@@ -34,6 +34,10 @@ export class FieldChecker {
   private unsubDict: () => void;
   private destroyed = false;
   private rafPending = false;
+  // Monotonic request id. Responses that are not the newest are dropped: without
+  // this, a slow check can land after a newer one and pair its issue offsets with
+  // the wrong text snapshot, so applying a fix rewrites the wrong span.
+  private seq = 0;
 
   private onInput = () => this.schedule();
   private onScroll = () => this.throttledReposition();
@@ -62,6 +66,7 @@ export class FieldChecker {
   }
 
   private async run(): Promise<void> {
+    const mine = ++this.seq;
     const text = this.field.getText();
     if (!text.trim() || text.length > MAX_LEN) {
       this.text = text;
@@ -76,7 +81,9 @@ export class FieldChecker {
     } catch {
       /* backend unreachable or extension reloaded — leave field unmarked */
     }
-    if (this.destroyed) return;
+    // Drop a stale response: a newer check has been issued since this one started,
+    // so `issues` belongs to an older `text` than the one now on screen.
+    if (this.destroyed || mine !== this.seq) return;
     this.text = text;
     this.setIssues(issues);
   }
@@ -212,6 +219,13 @@ export class FieldChecker {
   }
 
   private applyRewrite(issue: GrammarIssue, replacement: string): void {
+    // A rewrite replaces a whole sentence, so a stale snapshot here destroys more
+    // text than a single-word fix would.
+    if (!this.snapshotIsCurrent()) {
+      this.setIssues([]);
+      this.schedule();
+      return;
+    }
     const [s, e] = this.sentenceRange(issue.offset, issue.length);
     this.field.replaceRange(s, e - s, replacement);
     this.schedule();
@@ -226,7 +240,20 @@ export class FieldChecker {
     });
   }
 
+  /** True if the live field still matches the snapshot the issues were computed
+   *  against. Offsets are only meaningful against that exact string, so every
+   *  write must check this first — otherwise we rewrite an unrelated span. */
+  private snapshotIsCurrent(): boolean {
+    return this.field.getText() === this.text;
+  }
+
   private apply(issue: GrammarIssue, replacement: string): void {
+    // The user may have typed between the underline being drawn and this click.
+    if (!this.snapshotIsCurrent()) {
+      this.setIssues([]);
+      this.schedule();
+      return;
+    }
     this.field.replaceRange(issue.offset, issue.length, replacement);
     // Offsets shift after an edit — the simplest correct move is to re-check.
     this.schedule();

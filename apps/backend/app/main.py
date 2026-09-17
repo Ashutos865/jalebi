@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings
+from app.config import enforce_production_safety, settings
 from app.middleware import (
     RateLimitMiddleware,
     RequestLogMiddleware,
@@ -22,6 +22,9 @@ logging.basicConfig(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Fail closed before serving a single request: a production deployment must not
+    # run with the public default signing key, an open dev-login, or CORS=*.
+    enforce_production_safety()
     # Optional error monitoring.
     if settings.sentry_dsn:
         try:

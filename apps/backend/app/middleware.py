@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections import defaultdict
 from threading import Lock
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -30,7 +29,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, limit_per_min: int):
         super().__init__(app)
         self.limit = limit_per_min
-        self._hits: dict[str, tuple[int, int]] = defaultdict(lambda: (0, 0))
+        # Plain dict + .get() rather than a defaultdict: the cleanup below rebuilds
+        # this mapping, and a comprehension cannot preserve a defaultdict factory.
+        self._hits: dict[str, tuple[int, int]] = {}
         self._lock = Lock()
 
     async def dispatch(self, request: Request, call_next):
@@ -41,14 +42,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         window = int(time.time() // 60)
         key = f"{_client_ip(request)}:{window}"
         with self._lock:
-            w, count = self._hits[key]
-            if w != window:
-                count = 0
+            # The window is part of the key, so a miss is always a fresh window.
+            _, count = self._hits.get(key, (window, 0))
             count += 1
             self._hits[key] = (window, count)
-            # Opportunistic cleanup of old windows.
+            # Opportunistic cleanup: drop every key from an elapsed window. Keeping
+            # `>= window` (not `window - 1`) means this actually sheds entries under
+            # load instead of re-running an O(n) rebuild on every request.
             if len(self._hits) > 10000:
-                self._hits = {k: v for k, v in self._hits.items() if v[0] >= window - 1}
+                self._hits = {k: v for k, v in self._hits.items() if v[0] >= window}
 
         if count > self.limit:
             return JSONResponse(
