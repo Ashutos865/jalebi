@@ -6,13 +6,28 @@ its link, latest score & readiness, how many revisions, and whether it's improvi
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Document, Evaluation, User
 from app.scoring.constitution import integrity_verdict
+from app.workflow import service as workflow
+
+
+def _sla_out(doc: Optional[Document]) -> dict:
+    """Where the current SOP phase stands. Empty when the doc has no clock."""
+    if doc is None:
+        return {"phase": None, "overdue": False, "at_risk": False}
+    sla = workflow.sla_for(doc)
+    return {
+        "phase": sla.phase,
+        "due_at": sla.due_at.isoformat() if sla.due_at else None,
+        "hours_remaining": sla.hours_remaining,
+        "overdue": sla.overdue,
+        "at_risk": sla.at_risk,
+    }
 
 
 async def list_documents(session: AsyncSession) -> List[dict]:
@@ -72,6 +87,12 @@ async def list_documents(session: AsyncSession) -> List[dict]:
                 doc.integrity_checked_at.isoformat()
                 if doc and doc.integrity_checked_at else None
             ),
+            # Production loop (SOP §3): who owes what, and by when.
+            "assigned_to": doc.assigned_to if doc else "",
+            "approved_by": doc.approved_by if doc else "",
+            "escalation_reason": doc.escalation_reason if doc else "",
+            "override_reason": doc.override_reason if doc else "",
+            "sla": _sla_out(doc),
             "revisions": len(rows),
             "first_score": first_score,
             "latest_score": latest_score,

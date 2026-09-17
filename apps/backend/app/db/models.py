@@ -47,7 +47,9 @@ class Document(Base):
     owner_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     content_type: Mapped[str] = mapped_column(String(50), default="news_article")
     # TIES SOP tracking-sheet fields
-    status: Mapped[str] = mapped_column(String(30), default="draft")  # draft|under_review|finalized|published
+    # Production-loop state — see app/workflow/states.py. Indexed: the tracker
+    # filters and sorts on it on every dashboard load.
+    status: Mapped[str] = mapped_column(String(30), default="draft", index=True)
     editor: Mapped[str] = mapped_column(String(200), default="")
     published_for: Mapped[str] = mapped_column(String(200), default="")
     co_authors: Mapped[str] = mapped_column(String(500), default="")
@@ -61,6 +63,33 @@ class Document(Base):
     integrity_checked_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # --- Production loop (SOP §3) --------------------------------------------
+    # The assignment brief: topic and angle live in the doc itself; these are the
+    # fields the loop needs to run and to know when something is overdue.
+    assigned_to: Mapped[str] = mapped_column(String(200), default="")
+    assigned_by: Mapped[str] = mapped_column(String(200), default="")
+    word_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    word_max: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Phase clocks. `phase_started_at` is reset on every transition that starts a
+    # new SOP window, so "overdue" always means the *current* phase.
+    assigned_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    phase_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    approved_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    approved_by: Mapped[str] = mapped_column(String(200), default="")
+    # Set when an editor signs off despite failing SOP checks. The SOP gives the
+    # editor final say, so this records the exception rather than blocking it.
+    override_reason: Mapped[str] = mapped_column(Text, default="")
+    # Why a piece was reassigned or scrapped (SOP §4 veto authority).
+    escalation_reason: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

@@ -16,6 +16,18 @@ async def _post(url: str, payload: dict) -> None:
         await client.post(url, json=payload)
 
 
+async def notify(text: str) -> None:
+    """Send a plain message to every configured webhook. Best-effort: an outage
+    must never fail the caller's operation."""
+    for url in (settings.slack_webhook_url, settings.teams_webhook_url):
+        if not url:
+            continue
+        try:
+            await _post(url, {"text": text})
+        except Exception:
+            pass
+
+
 async def notify_publication_ready(
     result: EvaluationResult, request: EvaluationRequest
 ) -> None:
