@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.auth.deps import maybe_require_auth
-from app.analysis import factcheck
+from app.analysis import factcheck, nation_first
 from app.analysis.analyzers import analyze_integrity
 from app.scoring import sop_header
 
@@ -52,4 +52,26 @@ async def factcheck_list(body: IntegrityIn, _=Depends(maybe_require_auth)) -> di
         "uncited_claims": worklist.uncited_claims,
         "high_risk_count": len(worklist.high_risk),
         "items": [asdict(i) for i in worklist.items[:100]],
+    }
+
+
+@router.post("/nation-first")
+async def nation_first_review(
+    body: IntegrityIn, _=Depends(maybe_require_auth)
+) -> dict:
+    """Nation-First review queue (SOP §4).
+
+    Raises unsourced disparagement or absolutes about national institutions for
+    the editor to judge. It never scores, and never flags sourced criticism:
+    evidence-based accountability reporting is what the SOP asks for, so only
+    "unverified rhetoric" is surfaced. The editorial decision stays human.
+    """
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(422, "Document text is empty.")
+    result = nation_first.review(sop_header.scoring_text(text))
+    return {
+        "needs_review": result.needs_review,
+        "sentences_examined": result.sentences_examined,
+        "flags": [asdict(f) for f in result.flags[:50]],
     }
