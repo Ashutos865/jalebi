@@ -61,6 +61,51 @@ export interface EvaluationMeta {
   knowledge_used?: number;
 }
 
+// ── Production loop (TIES SOP §3) ────────────────────────────────────────────
+
+/** Mirrors app/workflow/states.py. */
+export type WorkflowStatus =
+  | 'assigned'
+  | 'drafting'
+  | 'submitted'
+  | 'under_review'
+  | 'revising'
+  | 'approved'
+  | 'published'
+  | 'reassigned'
+  | 'scrapped'
+  // Legacy free-text statuses that predate the state machine.
+  | 'draft'
+  | 'finalized';
+
+export interface WorkflowSla {
+  phase: 'drafting' | 'editing' | null;
+  due_at?: string | null;
+  target_at?: string | null;
+  hours_remaining?: number | null;
+  overdue: boolean;
+  at_risk: boolean;
+}
+
+export interface WorkflowState {
+  status: WorkflowStatus;
+  next_states: WorkflowStatus[];
+  assigned_to: string;
+  assigned_by: string;
+  editor: string;
+  word_min?: number | null;
+  word_max?: number | null;
+  assigned_at?: string | null;
+  submitted_at?: string | null;
+  approved_at?: string | null;
+  approved_by: string;
+  override_reason: string;
+  escalation_reason: string;
+  /** Why this is not cleanly approvable. Advisory: the editor keeps final say. */
+  blocking_reasons: string[];
+  sla: WorkflowSla;
+}
+
 /** One mechanical TIES SOP check (header, word count, structure, references). */
 export interface SopCheckItem {
   name: string;

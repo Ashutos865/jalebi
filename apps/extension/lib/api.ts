@@ -7,6 +7,7 @@ import type {
   EvaluationRequest,
   EvaluationResult,
   ProvidersResponse,
+  WorkflowState,
 } from './types';
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8000';
@@ -71,13 +72,42 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = `Request failed (${res.status})`;
     try {
       const body = await res.json();
-      if (body?.detail) detail = body.detail;
+      if (body?.detail) detail = formatDetail(body.detail);
     } catch {
       /* keep default */
     }
     throw new Error(detail);
   }
   return res.json() as Promise<T>;
+}
+
+/** FastAPI returns `detail` as a string for HTTPException but as an array of
+ *  validation objects for a 422. Rendering that array directly throws
+ *  "Objects are not valid as a React child" and blanks the panel. */
+export function __formatDetailForTest(detail: unknown): string {
+  return formatDetail(detail);
+}
+
+function formatDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((d) => {
+        if (typeof d === 'string') return d;
+        const item = d as { loc?: unknown[]; msg?: string };
+        const field = Array.isArray(item.loc)
+          ? item.loc.filter((p) => p !== 'body').join('.')
+          : '';
+        return field && item.msg ? `${field}: ${item.msg}` : item.msg || '';
+      })
+      .filter(Boolean);
+    if (parts.length) return parts.join('; ');
+  }
+  try {
+    return JSON.stringify(detail);
+  } catch {
+    return 'Request failed.';
+  }
 }
 
 export function fetchContentTypes(): Promise<ContentTypeOption[]> {
@@ -123,6 +153,58 @@ export function evaluate(req: EvaluationRequest): Promise<EvaluationResult> {
   return request<EvaluationResult>('/api/evaluate', {
     method: 'POST',
     body: JSON.stringify(req),
+  });
+}
+
+// ── Production loop (TIES SOP §3) ────────────────────────────────────────────
+
+export function fetchWorkflow(docId: string): Promise<WorkflowState> {
+  return request<WorkflowState>(
+    `/api/documents/${encodeURIComponent(docId)}/workflow`,
+  );
+}
+
+export function transitionDocument(
+  docId: string,
+  status: string,
+  opts: { reason?: string; override_reason?: string } = {},
+): Promise<WorkflowState & { ok: boolean }> {
+  return request(`/api/documents/${encodeURIComponent(docId)}/status`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      status,
+      reason: opts.reason || '',
+      override_reason: opts.override_reason || '',
+    }),
+  });
+}
+
+export function assignDocument(
+  docId: string,
+  brief: {
+    assigned_to: string;
+    editor?: string;
+    word_min?: number | null;
+    word_max?: number | null;
+  },
+): Promise<WorkflowState & { ok: boolean }> {
+  return request(`/api/documents/${encodeURIComponent(docId)}/assign`, {
+    method: 'PUT',
+    body: JSON.stringify(brief),
+  });
+}
+
+export function recordIntegrity(
+  docId: string,
+  aiPercent: number,
+  plagiarismPercent: number,
+): Promise<{ ok: boolean; passed: boolean; breaches: string[] }> {
+  return request(`/api/documents/${encodeURIComponent(docId)}/integrity`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      ai_percent: aiPercent,
+      plagiarism_percent: plagiarismPercent,
+    }),
   });
 }
 

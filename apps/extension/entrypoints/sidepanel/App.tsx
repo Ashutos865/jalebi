@@ -19,7 +19,10 @@ import {
   fetchProviders,
   classifyContentType,
   evaluate,
+  fetchMe,
 } from '@/lib/api';
+import type { AuthUser } from '@/lib/api';
+import { WorkflowPanel } from '@/components/WorkflowPanel';
 import { isGoogleDocUrl } from '@/lib/doc';
 import { markIssuesInDoc, clearDocMarks } from '@/lib/docs';
 import type { Issue } from '@/lib/types';
@@ -52,6 +55,9 @@ export default function App() {
   const [marking, setMarking] = useState(false);
   const [markMsg, setMarkMsg] = useState('');
   const [resultView, setResultView] = useState<'report' | 'review'>('report');
+  // Signed-in user — decides which production-loop actions are offered. The
+  // server enforces the same rules, so this is presentation only.
+  const [me, setMe] = useState<AuthUser | null>(null);
 
   // Load content types + available AI providers from the backend.
   useEffect(() => {
@@ -95,6 +101,22 @@ export default function App() {
 
   useEffect(() => {
     loadDoc();
+  }, []);
+
+  // Who is signed in, if anyone. Guarded because the side panel is torn down
+  // aggressively when the active tab changes.
+  useEffect(() => {
+    let alive = true;
+    fetchMe()
+      .then((u) => {
+        if (alive) setMe(u);
+      })
+      .catch(() => {
+        if (alive) setMe(null); // signed out — the panel still renders read-only
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const detectType = async () => {
@@ -293,6 +315,12 @@ export default function App() {
               )}
             </button>
           </div>
+        )}
+
+        {/* TIES production loop — visible as soon as a doc is loaded, not only
+            after an evaluation, since submitting is a drafting-time action. */}
+        {phase !== 'error' && doc?.docId && (
+          <WorkflowPanel docId={doc.docId} me={me} />
         )}
 
         {/* States */}
