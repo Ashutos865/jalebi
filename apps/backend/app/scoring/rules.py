@@ -104,9 +104,9 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
 
     # ── sourcing signals ──────────────────────────────────────────────────
     attributions = sum(low.count(m) for m in C.ATTRIBUTION_MARKERS)
-    tiers_present = sorted(
-        t for t, terms in C.SOURCE_TIERS.items() if any(x in low for x in terms)
-    )
+    # Word-boundary matching: plain substrings scored "went to university" as a
+    # Tier 3 media source.
+    tiers_present = C.tiers_present(text)
     best_tier = tiers_present[0] if tiers_present else 99
 
     # ── Research Accuracy (rule part) ─────────────────────────────────────
