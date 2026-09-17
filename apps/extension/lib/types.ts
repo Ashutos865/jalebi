@@ -49,14 +49,38 @@ export interface CategoryScore {
   recommendations: string[];
 }
 
+// Every field except content_type has a default on the backend, so a response
+// may legitimately omit them. Optional here to match reality.
 export interface EvaluationMeta {
-  evaluator: string;
-  model: string;
-  schema_version: string;
+  evaluator?: string;
+  model?: string;
+  schema_version?: string;
   content_type: ContentTypeValue;
+  word_count?: number;
+  duration_ms?: number;
+  knowledge_used?: number;
+}
+
+/** One mechanical TIES SOP check (header, word count, structure, references). */
+export interface SopCheckItem {
+  name: string;
+  passed: boolean;
+  detail: string;
+  severity: 'required' | 'advisory';
+}
+
+/** SOP compliance — reported beside the editorial score, never mixed into it. */
+export interface SopComplianceReport {
+  checked: boolean; // false when the document has no SOP header
+  compliant: boolean;
+  checks: SopCheckItem[];
+  header_present: boolean;
+  header_fields: Record<string, string>;
+  missing_fields: string[];
   word_count: number;
-  duration_ms: number;
-  knowledge_used: number;
+  word_min?: number | null;
+  word_max?: number | null;
+  reference_urls: string[];
 }
 
 export interface EvaluationResult {
@@ -69,6 +93,7 @@ export interface EvaluationResult {
   critical_issues: Issue[];
   strengths: string[];
   next_steps: string[];
+  sop?: SopComplianceReport;
   meta: EvaluationMeta;
 }
 
