@@ -63,6 +63,10 @@ class Settings:
     google_redirect_uri: str = os.getenv(
         "GOOGLE_REDIRECT_URI", "http://127.0.0.1:8000/api/auth/google/callback"
     )
+    # Exact origin the OAuth success page may postMessage the token to. Empty →
+    # derived from google_redirect_uri. Never "*": that hands the bearer token to
+    # any site that opened the popup.
+    oauth_post_message_origin: str = os.getenv("JALEBI_OAUTH_POSTMESSAGE_ORIGIN", "")
     # Comma-separated emails granted admin on first login (founders).
     admin_emails: List[str] = field(
         default_factory=lambda: _csv("JALEBI_ADMIN_EMAILS", "")
