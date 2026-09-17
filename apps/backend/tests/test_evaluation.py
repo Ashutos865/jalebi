@@ -11,8 +11,9 @@ import asyncio
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.pipeline.orchestrator import MockEvaluator
-from app.rubrics import RUBRICS
+from app.pipeline.hybrid_evaluator import HybridEvaluator
+from app.scoring import constitution as C
+from app.schemas.content_labels import label_for
 from app.schemas.evaluation import (
     ContentType,
     EvaluationRequest,
@@ -40,23 +41,29 @@ STRONG = (
 
 
 def _run(req: EvaluationRequest):
-    # asyncio.run (not get_event_loop) — since 3.12 the latter no longer creates a
-    # loop implicitly on the main thread and raises RuntimeError.
-    return asyncio.run(MockEvaluator().evaluate(req))
+    # The mock provider is HybridEvaluator with no LLM client: rules-only, so
+    # still fully deterministic. asyncio.run (not get_event_loop) — since 3.12
+    # the latter no longer creates a loop implicitly and raises RuntimeError.
+    return asyncio.run(
+        HybridEvaluator(client=None, provider="mock", model="").evaluate(req)
+    )
 
 
-def test_all_rubrics_have_reviewers():
-    from app.pipeline.mock_reviewer import REVIEWERS
-
-    for rubric in RUBRICS.values():
-        for dim in rubric.dimensions:
-            assert dim.key in REVIEWERS, f"missing reviewer for {dim.key}"
+def test_every_content_type_has_a_label():
+    """The sidebar dropdown and the classifier response both need one."""
+    for ct in ContentType:
+        assert label_for(ct), ct
 
 
-def test_rubric_weights_sum_to_one():
-    for ct, rubric in RUBRICS.items():
-        total = round(sum(d.weight for d in rubric.dimensions), 6)
-        assert total == 1.0, f"{ct} weights sum to {total}"
+def test_weights_sum_to_one_for_every_content_type():
+    for ct in ContentType:
+        total = round(sum(C.weights_for(ct.value).values()), 6)
+        assert total == 1.0, f"{ct.value} weights sum to {total}"
+
+
+def test_weights_cover_every_scoring_dimension():
+    for ct in ContentType:
+        assert set(C.weights_for(ct.value)) == set(C.DIMENSION_KEYS), ct.value
 
 
 def test_strong_beats_weak():
@@ -73,8 +80,7 @@ def test_deterministic():
 
 def test_result_shape():
     res = _run(EvaluationRequest(text=STRONG, content_type=ContentType.news_article))
-    rubric = RUBRICS[ContentType.news_article]
-    assert len(res.categories) == len(rubric.dimensions)
+    assert len(res.categories) == len(C.DIMENSIONS)
     assert 0 <= res.overall_score <= 100
     assert isinstance(res.publication_readiness, PublicationReadiness)
     assert res.publication_ready == (
@@ -85,10 +91,35 @@ def test_result_shape():
     assert res.meta.word_count > 0
 
 
-def test_sensational_flagged_in_neutrality():
-    res = _run(EvaluationRequest(text=WEAK, content_type=ContentType.news_article))
-    neutrality = next(c for c in res.categories if c.key == "neutrality")
-    assert neutrality.issues, "weak sensational text should raise a neutrality issue"
+def test_sensational_text_fails_the_sourcing_checks():
+    """Unsourced hype must not pass the sourcing and attribution checks, even
+    though it makes no checkable claim to flag."""
+    from app.scoring import rules
+
+    report = rules.analyze(WEAK, None, "news_article")
+    failed = {c.name for c in report.checklist if not c.passed}
+    assert "At least one credible (Tier 1–3) source" in failed
+    assert "Claims are attributed" in failed
+
+
+def test_a_sourced_statistic_does_not_trip_the_unsupported_claim_cap():
+    """The headline carries the figure and the body attributes it a line later —
+    ordinary structure. Judging attribution one sentence at a time capped a
+    fully-sourced article at 50, below unsourced hype."""
+    from app.scoring import rules
+
+    report = rules.analyze(STRONG, None, "news_article")
+    assert "unsupported_claim" not in {c.code for c in report.caps}
+
+
+def test_decimals_do_not_split_sentences():
+    """A naive split turned '12.7%' into '12.' and '7%', and the orphaned '7%'
+    then read as an unsourced statistic."""
+    from app.scoring import rules
+
+    sents = rules._sentences("Exports rose 12.7% in FY24. Electronics led.")
+    assert sents[0] == "Exports rose 12.7% in FY24."
+    assert len(sents) == 2
 
 
 # --- API surface ------------------------------------------------------------

@@ -115,7 +115,7 @@ def combine(rules: RuleReport, ai: AIReport, content_type: str) -> Composed:
     passed = sum(1 for c in rules.checklist if c.passed)
     total = len(rules.checklist)
     strengths = ai.strengths or _rule_strengths(rules.checklist)
-    next_steps = _next_steps(critical, ai.weaknesses)
+    next_steps = _next_steps(critical, ai.weaknesses, rules.checklist, ready)
 
     summary = _summary(overall, readiness_label, passed, total, worst_cap, ai.summary)
     return Composed(
@@ -133,9 +133,27 @@ def _rule_strengths(checklist: List[CheckItem]) -> List[str]:
     return [f"{c.name}" for c in checklist if c.passed][:5]
 
 
-def _next_steps(critical: List[Issue], weaknesses: List[str]) -> List[str]:
+def _next_steps(
+    critical: List[Issue],
+    weaknesses: List[str],
+    checklist=(),
+    readiness_ready: bool = False,
+) -> List[str]:
     steps = [i.suggestion for i in critical[:4] if i.suggestion]
     steps += [w for w in weaknesses if w]
+
+    # A piece can need revision without any critical issue or AI weakness — a
+    # capped-at-nothing draft that simply fails checks. Falling through to the
+    # failed checklist keeps the writer from being told "needs revision" with no
+    # indication of what to do.
+    if not steps:
+        steps += [
+            f"Address: {c.name}" + (f" ({c.detail})" if c.detail else "")
+            for c in checklist if not c.passed
+        ][:4]
+    if not steps and not readiness_ready:
+        steps.append("Tighten sourcing and structure before resubmitting.")
+
     out, seen = [], set()
     for s in steps:
         if s not in seen:

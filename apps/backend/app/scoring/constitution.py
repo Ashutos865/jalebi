@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 # ── Dimensions ───────────────────────────────────────────────────────────────
 # key -> (display name, default weight, alpha)
@@ -70,8 +70,93 @@ WEIGHTS_BY_TYPE: Dict[str, Dict[str, float]] = {
 DEFAULT_WEIGHTS: Dict[str, float] = dict(_BASE)
 
 
+# ── Admin weight overrides ───────────────────────────────────────────────────
+# Editors tune the per-content-type weighting from the admin panel. Overrides are
+# persisted in the DB (RubricOverride) and reloaded into this map at startup, so
+# they survive restarts and apply to every worker.
+_overrides: Dict[str, Dict[str, float]] = {}
+
+DIMENSION_KEYS: List[str] = [d.key for d in DIMENSIONS]
+
+
+class WeightError(ValueError):
+    """Rejected weight override."""
+
+
+def validate_weights(weights: Dict[str, float]) -> Dict[str, float]:
+    """Check an override and return it normalised to sum to 1.0.
+
+    Strict on purpose. The previous implementation validated only the dimension
+    *keys*, so an all-zero override normalised to every weight being 0.0 (every
+    document scoring 0), and negative values inverted the score. Both are silent
+    and catastrophic.
+    """
+    if not weights:
+        raise WeightError("Provide a weight for at least one dimension.")
+
+    unknown = sorted(set(weights) - set(DIMENSION_KEYS))
+    if unknown:
+        raise WeightError(
+            f"Unknown dimension keys: {unknown}. Valid keys: {DIMENSION_KEYS}."
+        )
+
+    for key, value in weights.items():
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise WeightError(f"Weight for {key!r} must be a number.")
+        if value != value or value in (float("inf"), float("-inf")):
+            raise WeightError(f"Weight for {key!r} must be a finite number.")
+        if value < 0:
+            raise WeightError(f"Weight for {key!r} cannot be negative.")
+
+    total = sum(weights.values())
+    if total <= 0:
+        raise WeightError("Weights must add up to more than zero.")
+
+    # Fill unspecified dimensions from the base, then normalise the whole vector
+    # so the stored result is exactly what scoring will use — no silent rescaling
+    # of a number the admin never entered.
+    return {k: round(v, 6) for k, v in weights.items()}
+
+
+def set_override(content_type: str, weights: Dict[str, float]) -> Dict[str, float]:
+    """Validate, store and apply an override. Returns the effective weights."""
+    validate_weights(weights)
+    _overrides[content_type] = dict(weights)
+    return weights_for(content_type)
+
+
+def clear_override(content_type: str) -> None:
+    _overrides.pop(content_type, None)
+
+
+def get_override(content_type: str) -> Optional[Dict[str, float]]:
+    return _overrides.get(content_type)
+
+
 def weights_for(content_type: str) -> Dict[str, float]:
-    return WEIGHTS_BY_TYPE.get(content_type, DEFAULT_WEIGHTS)
+    """Effective weights: the content-type base, with any admin override applied
+    on top, normalised to sum to 1.0."""
+    base = dict(WEIGHTS_BY_TYPE.get(content_type, DEFAULT_WEIGHTS))
+    override = _overrides.get(content_type)
+    if not override:
+        return base
+
+    merged = {**base, **override}
+    total = sum(merged.values())
+    if total <= 0:
+        # Defensive: validate_weights rejects this, so it can only arise from a
+        # legacy DB row. Fall back to the base rather than zeroing every score.
+        return base
+
+    out = {k: round(v / total, 6) for k, v in merged.items()}
+    # Rounding each weight independently leaves the sum a hair off 1.0, which
+    # would quietly skew every score. Push the residue onto the largest weight,
+    # where it is proportionally smallest.
+    drift = round(1.0 - sum(out.values()), 6)
+    if drift:
+        heaviest = max(out, key=lambda k: out[k])
+        out[heaviest] = round(out[heaviest] + drift, 6)
+    return out
 
 
 # ── Research-integrity caps (TIES Content SOP §2, §4, "Zero-Tolerance") ──────

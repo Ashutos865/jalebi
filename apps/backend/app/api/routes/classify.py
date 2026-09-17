@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from app.auth.deps import maybe_require_auth
 from app.pipeline.classifier import classify
-from app.rubrics import RUBRICS
+from app.schemas.content_labels import label_for
 from app.schemas.evaluation import ContentType
 
 router = APIRouter(tags=["classify"])
@@ -24,5 +24,5 @@ async def classify_route(body: ClassifyIn, _=Depends(maybe_require_auth)) -> dic
         raise HTTPException(422, "Document text is empty.")
     result = classify(text, body.title)
     ct = ContentType(result["content_type"])
-    result["label"] = RUBRICS[ct].label
+    result["label"] = label_for(ct)
     return result

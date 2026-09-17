@@ -18,8 +18,8 @@ from app.db.models import (
     RubricOverride,
     User,
 )
-from app.pipeline import prompt as prompt_builder
-from app.rubrics import RUBRICS, get_rubric, set_override
+from app.scoring import ai_prompt
+from app.scoring import constitution as C
 from app.schemas.evaluation import ContentType
 from app.services.audit import log_action
 
@@ -69,15 +69,47 @@ async def patch_user(user_id: int, body: UserPatch,
 
 @router.get("/rubrics")
 async def list_rubrics(_: User = Depends(admin_only)) -> list[dict]:
+    """The weights the scoring engine actually uses, per content type."""
     out = []
     for ct in ContentType:
-        r = get_rubric(ct)
+        effective = C.weights_for(ct.value)
+        override = C.get_override(ct.value)
         out.append({
-            "content_type": ct.value, "label": r.label,
-            "dimensions": [{"key": d.key, "name": d.name, "weight": d.weight}
-                           for d in r.dimensions],
+            "content_type": ct.value,
+            "label": ct.value.replace("_", " ").title(),
+            "overridden": override is not None,
+            "dimensions": [
+                {"key": d.key, "name": d.name, "weight": effective[d.key]}
+                for d in C.DIMENSIONS
+            ],
         })
     return out
+
+
+@router.delete("/rubrics/{content_type}")
+async def reset_rubric(content_type: str,
+                       admin: User = Depends(admin_only),
+                       session: AsyncSession = Depends(get_session)) -> dict:
+    """Drop an override and go back to the content type's base weights."""
+    try:
+        ct = ContentType(content_type)
+    except ValueError:
+        raise HTTPException(422, "Unknown content type.")
+    row = (await session.execute(
+        select(RubricOverride).where(RubricOverride.content_type == ct.value)
+    )).scalar_one_or_none()
+    if row is not None:
+        await session.delete(row)
+        await session.commit()
+    C.clear_override(ct.value)
+    await log_action(session, actor=admin, action="rubric.reset", target=ct.value)
+    return {
+        "content_type": ct.value,
+        "dimensions": [
+            {"key": d.key, "name": d.name, "weight": C.weights_for(ct.value)[d.key]}
+            for d in C.DIMENSIONS
+        ],
+    }
 
 
 class RubricPatch(BaseModel):
@@ -92,11 +124,15 @@ async def update_rubric(content_type: str, body: RubricPatch,
         ct = ContentType(content_type)
     except ValueError:
         raise HTTPException(422, "Unknown content type.")
-    valid = {d.key for d in RUBRICS[ct].dimensions}
-    bad = set(body.weights) - valid
-    if bad:
-        raise HTTPException(422, f"Unknown dimension keys: {sorted(bad)}")
-    # Persist + apply in-memory.
+
+    # Validate against the dimensions the scoring engine actually uses. This
+    # endpoint previously wrote to app/rubrics, which no score ever read — an
+    # admin could tune weights, see them saved, and change nothing.
+    try:
+        C.validate_weights(body.weights)
+    except C.WeightError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
     row = (await session.execute(
         select(RubricOverride).where(RubricOverride.content_type == ct.value)
     )).scalar_one_or_none()
@@ -109,11 +145,24 @@ async def update_rubric(content_type: str, body: RubricPatch,
         row.version += 1
         row.updated_by = admin.id
     await session.commit()
-    set_override(ct, body.weights)
+
+    effective = C.set_override(ct.value, body.weights)
     await log_action(session, actor=admin, action="rubric.update", target=ct.value)
-    return {"content_type": ct.value,
-            "dimensions": [{"key": d.key, "weight": d.weight}
-                           for d in get_rubric(ct).dimensions]}
+    # `requested` vs `effective`: weights are normalised to sum to 1.0, so asking
+    # for accuracy=0.50 alongside the other defaults yields 0.40. Reporting both
+    # means the admin is never shown a number they did not enter without
+    # explanation.
+    return {
+        "content_type": ct.value,
+        "requested": body.weights,
+        "dimensions": [
+            {"key": key, "name": name, "weight": effective[key]}
+            for key, name in [(d.key, d.name) for d in C.DIMENSIONS]
+        ],
+        "normalised": any(
+            abs(effective[k] - v) > 1e-6 for k, v in body.weights.items()
+        ),
+    }
 
 
 # --- Prompts (view the exact prompt the model receives) ---------------------
@@ -124,8 +173,11 @@ async def view_prompt(content_type: str, _: User = Depends(admin_only)) -> dict:
         ct = ContentType(content_type)
     except ValueError:
         raise HTTPException(422, "Unknown content type.")
+    # ai_prompt is what HybridEvaluator actually sends. This previously rendered
+    # app/pipeline/prompt.py, which no live evaluation used — so the panel showed
+    # an admin a prompt the model never received.
     return {"content_type": ct.value,
-            "system_prompt": prompt_builder.build_system(get_rubric(ct))}
+            "system_prompt": ai_prompt.build_system(ct.value)}
 
 
 # --- Audit log + usage ------------------------------------------------------

@@ -12,7 +12,7 @@ from app.db.base import get_session
 from app.db.models import User
 from app.llm import registry
 from app.pipeline import get_evaluator
-from app.rubrics import RUBRICS
+from app.schemas.content_labels import label_for
 from app.schemas.evaluation import ContentType, EvaluationRequest, EvaluationResult
 
 router = APIRouter(tags=["evaluation"])
@@ -21,7 +21,7 @@ router = APIRouter(tags=["evaluation"])
 @router.get("/content-types")
 async def content_types() -> list[dict]:
     """The content types the sidebar dropdown offers, with their rubric labels."""
-    return [{"value": ct.value, "label": RUBRICS[ct].label} for ct in ContentType]
+    return [{"value": ct.value, "label": label_for(ct)} for ct in ContentType]
 
 
 def _resolve_provider(requested: Optional[str]) -> str:

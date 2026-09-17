@@ -55,16 +55,21 @@ async def lifespan(app: FastAPI):
                 except Exception:
                     await s.rollback()
                 await reindex_all(s)
-            # Load admin rubric-weight overrides.
+            # Load admin rubric-weight overrides into the scoring engine.
             from app.db.models import RubricOverride
-            from app.rubrics import set_override
-            from app.schemas.evaluation import ContentType
+            from app.scoring import constitution as C
 
             for row in (await s.execute(select(RubricOverride))).scalars().all():
                 try:
-                    set_override(ContentType(row.content_type), row.weights)
-                except ValueError:
-                    pass
+                    C.set_override(row.content_type, row.weights)
+                except C.WeightError as exc:
+                    # A stored override that no longer validates (e.g. written
+                    # against the old 15-dimension vocabulary) is skipped loudly
+                    # rather than silently zeroing a content type's scores.
+                    logging.getLogger("jalebi").warning(
+                        "Ignoring invalid rubric override for %s: %s",
+                        row.content_type, exc,
+                    )
     except Exception as e:  # keep the API up even if the DB is unreachable
         print(f"[Jalebi] DB init skipped: {e}")
     yield

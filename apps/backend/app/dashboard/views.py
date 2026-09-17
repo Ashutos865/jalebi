@@ -173,13 +173,24 @@ const RENDER={
    rows.forEach(r=>html+=`<tr><td><span class=pill>${esc(r.kind)}</span></td><td>${esc(r.title)}</td><td>${esc(r.content_type||'-')}</td><td>${esc(r.chars)}</td></tr>`);
    v.innerHTML=html+'</table></div>';
    $('kadd').onclick=async()=>{await api('/knowledge',{method:'POST',body:JSON.stringify({kind:$('kkind').value,title:$('ktitle').value,content:$('kcontent').value,content_type:$('kct').value||null})});openTab('knowledge');};},
- async rubrics(v){const rows=await api('/admin/rubrics');let html='';
-   rows.forEach(r=>{html+=`<div class=card style=margin-bottom:12px><h2>${esc(r.label)} <span class=muted style=font-weight:400>(${esc(r.content_type)})</span></h2><table>`;
+ async rubrics(v){const rows=await api('/admin/rubrics');
+   let html='<div class=card><h2>Scoring weights</h2><p class=muted style=font-size:12px>These are the weights the scoring engine uses. Values are normalised to sum to 1.0, so entering 0.5 for one dimension alongside the others yields less than 0.5 — the saved figure is shown back to you. Changes apply to the next evaluation.</p></div>';
+   rows.forEach(r=>{const tag=r.overridden?' <span class=pill style="background:#FFF0E1;color:#E8820C">customised</span>':'';
+     html+=`<div class=card style=margin-bottom:12px><h2>${esc(r.label)}${tag} <span class=muted style=font-weight:400>(${esc(r.content_type)})</span></h2><table>`;
      r.dimensions.forEach(d=>html+=`<tr><td style=width:200px>${esc(d.name)}</td><td><input data-ct="${esc(r.content_type)}" data-key="${esc(d.key)}" value="${esc(d.weight)}" style=width:90px></td></tr>`);
-     html+=`</table><button data-save=${r.content_type} style=margin-top:8px>Save weights</button></div>`;});
+     html+=`</table><div style=margin-top:8px><button data-save="${esc(r.content_type)}">Save weights</button>`;
+     if(r.overridden)html+=` <button data-reset="${esc(r.content_type)}">Reset to default</button>`;
+     html+=`<span class=muted data-msg="${esc(r.content_type)}" style=margin-left:8px;font-size:12px></span></div></div>`;});
    v.innerHTML=html;
-   v.querySelectorAll('[data-save]').forEach(b=>b.onclick=async()=>{const ct=b.dataset.save;const weights={};v.querySelectorAll(`[data-ct=${ct}]`).forEach(i=>weights[i.dataset.key]=parseFloat(i.value));
-     await api('/admin/rubrics/'+ct,{method:'PUT',body:JSON.stringify({weights})});alert('Saved & renormalized');openTab('rubrics');});},
+   const msg=(ct,text,bad)=>{const el=v.querySelector(`[data-msg="${ct}"]`);if(el){el.textContent=text;el.style.color=bad?'#f43f5e':'';}};
+   v.querySelectorAll('[data-save]').forEach(b=>b.onclick=async()=>{const ct=b.dataset.save;const weights={};
+     v.querySelectorAll(`[data-ct="${ct}"]`).forEach(i=>{const n=parseFloat(i.value);if(!Number.isNaN(n))weights[i.dataset.key]=n;});
+     try{const res=await api('/admin/rubrics/'+ct,{method:'PUT',body:JSON.stringify({weights})});
+       msg(ct,res.normalised?'Saved — normalised to sum to 1.0.':'Saved.');setTimeout(()=>openTab('rubrics'),900);}
+     catch(e){msg(ct,e.message,true);}});
+   v.querySelectorAll('[data-reset]').forEach(b=>b.onclick=async()=>{const ct=b.dataset.reset;
+     try{await api('/admin/rubrics/'+ct,{method:'DELETE'});msg(ct,'Reset to default.');setTimeout(()=>openTab('rubrics'),700);}
+     catch(e){msg(ct,e.message,true);}});},
  async users(v){const rows=await api('/admin/users');let html='<div class=card><h2>Users</h2><table><tr><th>Email</th><th>Role</th><th>Dept</th><th></th></tr>';
    rows.forEach(u=>html+=`<tr><td>${esc(u.email)}</td><td><select data-uid=${esc(u.id)} class=urole>${['writer','editor','admin'].map(r=>`<option ${r===u.role?'selected':''}>${r}</option>`).join('')}</select></td><td><input data-uid=${esc(u.id)} class=udept value="${esc(u.department||'')}" style=width:120px></td><td><button data-save=${esc(u.id)}>Save</button></td></tr>`);
    v.innerHTML=html+'</table></div>';

@@ -51,7 +51,18 @@ class RuleReport:
 
 
 # ── text helpers ─────────────────────────────────────────────────────────────
-_SENT = re.compile(r"[^.!?\n]+[.!?]?", re.MULTILINE)
+# Split on terminal punctuation followed by whitespace and a capital, so
+# decimals ("12.7%"), URLs ("commerce.gov.in") and titles ("Dr. Rao") survive.
+# A naive [^.!?]+ split shattered all three — it turned "12.7%" into "12." and
+# "7%", and the orphaned "7%" then tripped the unsupported_claim hard cap,
+# limiting a fully-sourced article to 50.
+_ABBREV = (
+    r"(?<!\bDr\.)(?<!\bMr\.)(?<!\bMrs\.)(?<!\bMs\.)(?<!\bProf\.)(?<!\bSt\.)"
+    r"(?<!\bJr\.)(?<!\bSr\.)(?<!\bvs\.)(?<!\bNo\.)(?<!\bFig\.)(?<!\bEd\.)"
+)
+_SENT_SPLIT = re.compile(
+    r"(?<=[.!?])" + _ABBREV + r"\s+(?=[\"“(]?[A-Z0-9])|\n+"
+)
 _WORD = re.compile(r"[A-Za-z']+")
 # "hard" statistics: percentages, currency, large counts, explicit magnitudes.
 _STAT = re.compile(
@@ -63,7 +74,7 @@ _STAT = re.compile(
 
 
 def _sentences(text: str) -> List[str]:
-    return [s.strip() for s in _SENT.findall(text) if s.strip()]
+    return [s.strip() for s in _SENT_SPLIT.split(text or "") if s and s.strip()]
 
 
 def _paragraphs(text: str) -> List[str]:
@@ -112,9 +123,15 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
     # ── Research Accuracy (rule part) ─────────────────────────────────────
     acc = 85.0
     unsourced_stats: List[str] = []
-    for s in sents:
-        sl = s.lower()
-        if _STAT.search(s) and not _has_attribution(sl):
+    for idx, s in enumerate(sents):
+        if not _STAT.search(s):
+            continue
+        # Attribution is judged over a small window, not one sentence in
+        # isolation: a headline carries the figure and the body attributes it a
+        # line later, which is ordinary journalistic structure. Checking the
+        # sentence alone capped well-sourced articles at 50.
+        window = " ".join(sents[max(0, idx - 1): idx + 2]).lower()
+        if not _has_attribution(window):
             unsourced_stats.append(s.strip())
     for s in unsourced_stats[:6]:
         acc -= 8
