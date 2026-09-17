@@ -49,7 +49,9 @@ class _Fake(LLMClient):
 
 
 def _run(ev, req):
-    return asyncio.get_event_loop().run_until_complete(ev.evaluate(req))
+    # asyncio.run (not get_event_loop) — since 3.12 the latter no longer creates a
+    # loop implicitly on the main thread and raises RuntimeError.
+    return asyncio.run(ev.evaluate(req))
 
 
 def test_maps_and_injects_weights_and_provider():

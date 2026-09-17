@@ -129,3 +129,70 @@ class Settings:
 
 
 settings = Settings()
+
+
+# --- Production safety gate ----------------------------------------------------
+
+# The default signing key is published in this repository, so any deployment still
+# using it can have admin tokens forged against it.
+INSECURE_JWT_SECRET = "dev-insecure-change-me"
+MIN_JWT_SECRET_BYTES = 32
+
+
+def unsafe_production_settings(s: "Settings" = None) -> List[str]:
+    """Return the reasons `s` is unsafe to run with JALEBI_ENV=production.
+
+    Empty list == safe. Kept pure and separate from startup so it can be unit
+    tested and reused by a pre-deploy check.
+    """
+    s = s or settings
+    problems: List[str] = []
+
+    if s.jwt_secret == INSECURE_JWT_SECRET:
+        problems.append(
+            "JALEBI_JWT_SECRET is still the public default value — tokens can be forged. "
+            "Set it to a random string (e.g. `python -c \"import secrets;"
+            "print(secrets.token_urlsafe(48))\"`)."
+        )
+    elif len(s.jwt_secret) < MIN_JWT_SECRET_BYTES:
+        problems.append(
+            f"JALEBI_JWT_SECRET is {len(s.jwt_secret)} characters; "
+            f"use at least {MIN_JWT_SECRET_BYTES}."
+        )
+
+    # Dev-login is passwordless. Without a shared secret AND an allow-list it is an
+    # open door to account creation — and to admin, via JALEBI_ADMIN_EMAILS.
+    if s.allow_dev_login:
+        if not s.signup_secret:
+            problems.append(
+                "JALEBI_ALLOW_DEV_LOGIN=true without JALEBI_SIGNUP_SECRET is an open "
+                "registration endpoint. Set the secret, or JALEBI_ALLOW_DEV_LOGIN=false."
+            )
+        if not s.allowed_emails and not s.allowed_domains:
+            problems.append(
+                "JALEBI_ALLOW_DEV_LOGIN=true with no allow-list accepts any email "
+                "address. Set JALEBI_ALLOWED_EMAILS or JALEBI_ALLOWED_DOMAINS."
+            )
+
+    if "*" in s.cors_origins:
+        problems.append(
+            "JALEBI_CORS_ORIGINS=* lets any website call this API with a stolen "
+            "bearer token. List the exact origins instead."
+        )
+
+    return problems
+
+
+def enforce_production_safety(s: "Settings" = None) -> None:
+    """Refuse to start an unsafe production deployment. No-op outside production."""
+    s = s or settings
+    if s.environment != "production":
+        return
+    problems = unsafe_production_settings(s)
+    if problems:
+        raise RuntimeError(
+            "Refusing to start: unsafe production configuration.\n  - "
+            + "\n  - ".join(problems)
+            + "\n\nSee apps/backend/.env.production.example. To run these settings "
+            "anyway (never on a public host), set JALEBI_ENV=development."
+        )

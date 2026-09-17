@@ -40,7 +40,9 @@ STRONG = (
 
 
 def _run(req: EvaluationRequest):
-    return asyncio.get_event_loop().run_until_complete(MockEvaluator().evaluate(req))
+    # asyncio.run (not get_event_loop) — since 3.12 the latter no longer creates a
+    # loop implicitly on the main thread and raises RuntimeError.
+    return asyncio.run(MockEvaluator().evaluate(req))
 
 
 def test_all_rubrics_have_reviewers():
