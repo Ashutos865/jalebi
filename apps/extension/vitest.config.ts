@@ -8,7 +8,10 @@ export default defineConfig({
     },
   },
   test: {
-    environment: 'node',
-    include: ['**/*.test.ts'],
+    // jsdom, not node: the riskiest modules here (checker, rects, editable,
+    // overlay) are DOM-driven and are untestable under a node environment.
+    environment: 'jsdom',
+    include: ['**/*.test.ts', '**/*.test.tsx'],
+    exclude: ['node_modules/**', '.output/**', '.wxt/**'],
   },
 });
