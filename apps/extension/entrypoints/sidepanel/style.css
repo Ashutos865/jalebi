@@ -115,6 +115,21 @@ body {
   animation: jalebi-spin 0.9s linear infinite;
 }
 
+@keyframes jalebi-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.jalebi-pop {
+  animation: jalebi-pop 0.14s cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: top left;
+}
+
 @keyframes jalebi-pulse {
   0%,
   100% {

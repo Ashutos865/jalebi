@@ -9,7 +9,9 @@ import {
   CircleButton,
   MetricPill,
   SourceCard,
+  SegmentedToggle,
 } from '@/components/controls';
+import { ReviewCanvas } from '@/components/ReviewCanvas';
 import { Emoji } from '@/components/emoji';
 import { useTheme } from '@/lib/useTheme';
 import {
@@ -49,6 +51,7 @@ export default function App() {
   const [detecting, setDetecting] = useState(false);
   const [marking, setMarking] = useState(false);
   const [markMsg, setMarkMsg] = useState('');
+  const [resultView, setResultView] = useState<'report' | 'review'>('report');
 
   // Load content types + available AI providers from the backend.
   useEffect(() => {
@@ -298,32 +301,51 @@ export default function App() {
         {phase === 'error' && <ErrorState message={error} onRetry={loadDoc} />}
         {phase === 'done' && result && (
           <>
-            <div className="card p-3">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={markInDoc}
-                  disabled={marking}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-full bg-gradient-to-br from-jalebi-500 to-jalebi-600 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-jalebi-600/30 transition hover:brightness-105 active:scale-[.99] disabled:opacity-50"
-                >
-                  {marking ? (
-                    <Spinner className="h-3.5 w-3.5 border-white border-t-transparent" />
-                  ) : (
-                    <Emoji name="pencil" size={14} />
-                  )}
-                  {marking ? 'Working…' : 'Highlight & comment in doc'}
-                </button>
-                <CircleButton
-                  onClick={clearMarks}
-                  disabled={marking}
-                  variant="light"
-                  title="Clear all highlights & comments"
-                >
-                  ↺
-                </CircleButton>
-              </div>
-              {markMsg && <p className="ink-soft mt-2 px-1 text-[11px]">{markMsg}</p>}
+            <div className="flex justify-center">
+              <SegmentedToggle
+                value={resultView}
+                onChange={setResultView}
+                options={[
+                  { value: 'report', label: 'Report' },
+                  { value: 'review', label: 'Review' },
+                ]}
+              />
             </div>
-            <Scorecard result={result} />
+
+            {resultView === 'review' && doc?.text && (
+              <ReviewCanvas text={doc.text} issues={issuesWithQuotes(result)} />
+            )}
+
+            {resultView === 'report' && (
+              <>
+                <div className="card p-3">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={markInDoc}
+                      disabled={marking}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-full bg-gradient-to-br from-jalebi-500 to-jalebi-600 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-jalebi-600/30 transition hover:brightness-105 active:scale-[.99] disabled:opacity-50"
+                    >
+                      {marking ? (
+                        <Spinner className="h-3.5 w-3.5 border-white border-t-transparent" />
+                      ) : (
+                        <Emoji name="pencil" size={14} />
+                      )}
+                      {marking ? 'Working…' : 'Highlight & comment in doc'}
+                    </button>
+                    <CircleButton
+                      onClick={clearMarks}
+                      disabled={marking}
+                      variant="light"
+                      title="Clear all highlights & comments"
+                    >
+                      ↺
+                    </CircleButton>
+                  </div>
+                  {markMsg && <p className="ink-soft mt-2 px-1 text-[11px]">{markMsg}</p>}
+                </div>
+                <Scorecard result={result} />
+              </>
+            )}
           </>
         )}
       </main>

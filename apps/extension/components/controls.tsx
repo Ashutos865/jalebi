@@ -143,3 +143,130 @@ export function SourceCard({
     </div>
   );
 }
+
+// ── status pill (image 1: "Speeding" / "Exited the geofence") ────────────────
+export type PillTone = 'red' | 'amber' | 'green' | 'blue' | 'gray' | 'purple';
+const PILL_TONE: Record<PillTone, { bg: string; fg: string }> = {
+  red: { bg: '#FEE4E2', fg: '#D92D20' },
+  amber: { bg: '#FEF0C7', fg: '#B54708' },
+  green: { bg: '#DCFAE6', fg: '#067647' },
+  blue: { bg: '#E0F2FE', fg: '#026AA2' },
+  gray: { bg: '#F2F4F7', fg: '#475467' },
+  purple: { bg: '#ECE9FF', fg: '#6941C6' },
+};
+
+export function StatusPill({
+  tone,
+  dot,
+  children,
+}: {
+  tone: PillTone;
+  dot?: boolean;
+  children: ReactNode;
+}) {
+  const t = PILL_TONE[tone];
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+      style={{ background: t.bg, color: t.fg }}
+    >
+      {dot && <span className="h-1.5 w-1.5 rounded-full" style={{ background: t.fg }} />}
+      {children}
+    </span>
+  );
+}
+
+// ── legend (image 1: the km/h colour ranges) ─────────────────────────────────
+export function Legend({ items }: { items: { color: string; label: string }[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      {items.map((it) => (
+        <span key={it.label} className="inline-flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full" style={{ background: it.color }} />
+          <span className="ink-soft text-[11px]">{it.label}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ── impact meter (image 2: the "Impact 46" slider) ───────────────────────────
+export function ImpactMeter({
+  label,
+  value,
+  max = 100,
+  color = '#7A5AF8',
+  suffix = '',
+}: {
+  label: string;
+  value: number;
+  max?: number;
+  color?: string;
+  suffix?: string;
+}) {
+  const pct = Math.max(0, Math.min(100, (value / max) * 100));
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="w-24 shrink-0 truncate text-[12px] font-medium">{label}</span>
+      <div className="relative h-1.5 flex-1 rounded-full bg-black/[0.06] dark:bg-white/10">
+        <div
+          className="absolute inset-y-0 left-0 rounded-full"
+          style={{ width: `${pct}%`, background: color }}
+        />
+      </div>
+      <span
+        className="w-9 shrink-0 text-right text-[12px] font-bold tabular-nums"
+        style={{ color }}
+      >
+        {value}
+        {suffix}
+      </span>
+    </div>
+  );
+}
+
+// ── iOS toggle switch ────────────────────────────────────────────────────────
+export function ToggleSwitch({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
+      style={{ background: checked ? '#7A5AF8' : 'rgba(0,0,0,0.16)' }}
+    >
+      <span
+        className="absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all"
+        style={{ left: checked ? '18px' : '2px' }}
+      />
+    </button>
+  );
+}
+
+// ── labelled control row for settings panels ─────────────────────────────────
+export function SettingRow({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2">
+      <div className="min-w-0">
+        <div className="text-[13px] font-semibold">{label}</div>
+        {hint && <div className="ink-soft text-[11px] leading-snug">{hint}</div>}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}

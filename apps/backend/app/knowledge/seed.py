@@ -5,6 +5,8 @@ already present, so every AI evaluation retrieves TIES' actual editorial standar
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +14,8 @@ from app.db.models import KnowledgeDoc
 from app.knowledge.service import create_knowledge_doc
 
 SOP_TITLE = "TIES Content SOP"
+CONSTITUTION_TITLE = "TIES Editorial Standards (AI Editor Specification)"
+_CONSTITUTION_PATH = Path(__file__).with_name("ties_constitution.md")
 
 SOP_TEXT = """\
 Standard Operating Procedure (SOP) for Content — TIES
@@ -60,16 +64,28 @@ analysis, clarity of presentation, relevance, and originality.
 """
 
 
-async def seed_default_knowledge(session: AsyncSession) -> bool:
-    """Ingest the SOP if not already present. Returns True if it was created."""
+async def _seed_one(session: AsyncSession, title: str, content: str) -> bool:
     existing = (
-        await session.execute(
-            select(KnowledgeDoc).where(KnowledgeDoc.title == SOP_TITLE)
-        )
+        await session.execute(select(KnowledgeDoc).where(KnowledgeDoc.title == title))
     ).scalar_one_or_none()
     if existing is not None:
         return False
     await create_knowledge_doc(
-        session, kind="handbook", title=SOP_TITLE, content=SOP_TEXT, content_type=None
+        session, kind="handbook", title=title, content=content, content_type=None
     )
     return True
+
+
+async def seed_default_knowledge(session: AsyncSession) -> bool:
+    """Ingest the SOP and the Editorial Constitution if not already present.
+
+    Returns True if anything was created. The Constitution is the primary editorial
+    standard; the SOP remains as supporting process guidance.
+    """
+    created = await _seed_one(session, SOP_TITLE, SOP_TEXT)
+    try:
+        constitution = _CONSTITUTION_PATH.read_text(encoding="utf-8")
+        created = await _seed_one(session, CONSTITUTION_TITLE, constitution) or created
+    except OSError:
+        pass
+    return created

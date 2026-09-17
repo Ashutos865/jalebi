@@ -24,8 +24,11 @@ class LLMResponse:
 
 class LLMClient(abc.ABC):
     @abc.abstractmethod
-    async def complete(self, *, system: str, prompt: str, max_tokens: int = 16000) -> LLMResponse:
-        """Return a completion. The provider handles thinking/effort/caching."""
+    async def complete(
+        self, *, system: str, prompt: str, max_tokens: int = 16000,
+        temperature: float = 0.0,
+    ) -> LLMResponse:
+        """Return a completion. temperature 0 = deterministic (reproducible scoring)."""
         ...
 
 
@@ -51,7 +54,8 @@ class AnthropicClient(LLMClient):
         return self._client
 
     async def complete(
-        self, *, system: str, prompt: str, max_tokens: int = 16000
+        self, *, system: str, prompt: str, max_tokens: int = 16000,
+        temperature: float = 0.0,
     ) -> LLMResponse:
         client = self._get_client()
         # The system prompt is stable per content type — cache it so repeat
@@ -62,8 +66,7 @@ class AnthropicClient(LLMClient):
         message = await client.messages.create(
             model=self._model,
             max_tokens=max_tokens,
-            thinking={"type": "adaptive"},
-            output_config={"effort": settings.effort},
+            temperature=temperature,
             system=system_blocks,
             messages=[{"role": "user", "content": prompt}],
         )

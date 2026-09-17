@@ -144,21 +144,19 @@ def _build_client(spec: ProviderSpec) -> LLMClient:
 
 
 def build_evaluator(provider_id: str, retriever=None):
-    """Return an Evaluator for the given provider id (optional RAG retriever)."""
+    """Return an Evaluator for the given provider id (optional RAG retriever).
+
+    All providers now run through the deterministic TIES HybridEvaluator (rules +
+    constrained AI judgment). Mock runs rules-only (client=None): still fully
+    deterministic and rule-anchored, no model call.
+    """
     spec = get_spec(provider_id)
-    if spec.kind == "mock":
-        from app.pipeline.orchestrator import MockEvaluator
+    from app.pipeline.hybrid_evaluator import HybridEvaluator
 
-        return MockEvaluator()
-    client = _build_client(spec)
-    if settings.pipeline_mode == "multi":
-        from app.pipeline.multi_agent import MultiAgentEvaluator
-
-        return MultiAgentEvaluator(
-            client=client, provider=spec.id, model=spec.model(), retriever=retriever
-        )
-    from app.pipeline.llm_evaluator import LLMEvaluator
-
-    return LLMEvaluator(
-        client=client, provider=spec.id, model=spec.model(), retriever=retriever
+    client = None if spec.kind == "mock" else _build_client(spec)
+    return HybridEvaluator(
+        client=client,
+        provider=spec.id,
+        model=spec.model() if spec.kind != "mock" else "",
+        retriever=retriever,
     )

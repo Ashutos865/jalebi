@@ -8,6 +8,16 @@ import {
   fetchMe,
   type AuthUser,
 } from '@/lib/api';
+import { Eyebrow, ToggleSwitch, SettingRow, Legend, CircleButton } from './controls';
+import { Emoji } from './emoji';
+
+// How overall scores map to the publishing decision (Constitution §A bands).
+const BAND_LEGEND = [
+  { color: '#17B26A', label: '85+ Publish' },
+  { color: '#2E90FA', label: '75–84 Minor edits' },
+  { color: '#F79009', label: '60–74 Major edits' },
+  { color: '#F04438', label: 'Below 60 Not ready' },
+];
 
 export function Settings({ onClose }: { onClose: () => void }) {
   const [url, setUrl] = useState('');
@@ -66,84 +76,92 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="card p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-xs font-bold uppercase tracking-wider ink-soft">Settings</h2>
-        <button onClick={onClose} className="ink-soft text-xs" aria-label="Close settings">
+      {/* Header */}
+      <div className="mb-2 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Emoji name="model" size={16} />
+          <h2 className="text-sm font-bold">Settings</h2>
+        </div>
+        <CircleButton variant="light" size={28} onClick={onClose} title="Close settings">
           ✕
-        </button>
+        </CircleButton>
       </div>
 
       {/* Account */}
-      <label className="mb-1 block text-xs font-medium">Account</label>
-      {me ? (
-        <div className="mb-4 flex items-center justify-between rounded-lg bg-black/5 px-3 py-2 text-sm dark:bg-white/5">
-          <span>
-            {me.email} <span className="ink-soft">· {me.role}</span>
-          </span>
-          <button onClick={signOut} className="ink-soft text-xs">
-            Sign out
-          </button>
-        </div>
-      ) : (
-        <div className="mb-4 space-y-2">
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@ties.org"
-            className={input}
-          />
-          <input
-            value={secret}
-            onChange={(e) => setSecret(e.target.value)}
-            type="password"
-            placeholder="shared secret (if required)"
-            className={input}
-          />
-          <button
-            onClick={signIn}
-            className="rounded-lg bg-jalebi-500 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-jalebi-600"
-          >
-            Sign in
-          </button>
-          {authErr && <span className="block text-xs text-rose-500">{authErr}</span>}
-        </div>
-      )}
+      <div className="border-t border-black/[0.06] pt-1 dark:border-white/10">
+        <SettingRow label="Account" hint={me ? `${me.email} · ${me.role}` : 'Sign in to sync & track'}>
+          {me && (
+            <button onClick={signOut} className="ink-soft text-xs font-semibold">
+              Sign out
+            </button>
+          )}
+        </SettingRow>
+        {!me && (
+          <div className="space-y-2 pb-2">
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@ties.org"
+              className={input}
+            />
+            <input
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              type="password"
+              placeholder="shared secret (if required)"
+              className={input}
+            />
+            <button
+              onClick={signIn}
+              className="rounded-full bg-jalebi-500 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-jalebi-600"
+            >
+              Sign in
+            </button>
+            {authErr && <span className="block text-xs text-rose-500">{authErr}</span>}
+          </div>
+        )}
+      </div>
 
       {/* Inline checking */}
-      <label className="mb-2 flex items-center justify-between text-xs font-medium">
-        <span>Inline grammar checking on the web</span>
-        <input
-          type="checkbox"
-          checked={inlineOn}
-          onChange={(e) => toggleInline(e.target.checked)}
-          className="h-4 w-4 accent-jalebi-500"
-        />
-      </label>
-      <p className="ink-soft mb-4 text-[11px]">
-        Underlines issues and offers fixes in any text field (email, social, CMS…).
-        Google Docs uses the sidebar instead.
-      </p>
+      <div className="border-t border-black/[0.06] dark:border-white/10">
+        <SettingRow
+          label="Inline checking on the web"
+          hint="Underlines & fixes in any text field. Google Docs uses the sidebar."
+        >
+          <ToggleSwitch checked={inlineOn} onChange={toggleInline} />
+        </SettingRow>
+      </div>
 
       {/* Backend */}
-      <label className="mb-1 block text-xs font-medium">Backend URL</label>
-      <input
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="http://127.0.0.1:8000"
-        className={input}
-      />
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          onClick={save}
-          className="rounded-lg bg-jalebi-500 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-jalebi-600"
-        >
-          Save & test
-        </button>
-        {status === 'checking' && <span className="ink-soft text-xs">Checking…</span>}
-        {status === 'ok' && <span className="text-xs text-emerald-500">Connected ✓</span>}
-        {status === 'fail' && (
-          <span className="text-xs text-rose-500">Cannot reach backend</span>
-        )}
+      <div className="border-t border-black/[0.06] py-2 dark:border-white/10">
+        <label className="mb-1.5 block text-[13px] font-semibold">Backend URL</label>
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="http://127.0.0.1:8000"
+          className={input}
+        />
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            onClick={save}
+            className="rounded-full bg-jalebi-500 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-jalebi-600"
+          >
+            Save & test
+          </button>
+          {status === 'checking' && <span className="ink-soft text-xs">Checking…</span>}
+          {status === 'ok' && <span className="text-xs text-emerald-500">Connected ✓</span>}
+          {status === 'fail' && (
+            <span className="text-xs text-rose-500">Cannot reach backend</span>
+          )}
+        </div>
+      </div>
+
+      {/* Publishing guide — score-band legend */}
+      <div className="border-t border-black/[0.06] pt-3 dark:border-white/10">
+        <Eyebrow>Publishing guide</Eyebrow>
+        <div className="mt-2">
+          <Legend items={BAND_LEGEND} />
+        </div>
       </div>
     </div>
   );

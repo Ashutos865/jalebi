@@ -20,7 +20,8 @@ class GeminiClient(LLMClient):
         return self._client
 
     async def complete(
-        self, *, system: str, prompt: str, max_tokens: int = 16000
+        self, *, system: str, prompt: str, max_tokens: int = 16000,
+        temperature: float = 0.0,
     ) -> LLMResponse:
         client = self._get_client()
         resp = await client.aio.models.generate_content(
@@ -30,6 +31,7 @@ class GeminiClient(LLMClient):
                 "system_instruction": system,
                 "response_mime_type": "application/json",
                 "max_output_tokens": max_tokens,
+                "temperature": temperature,
             },
         )
         text = getattr(resp, "text", "") or ""

@@ -1,10 +1,17 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { IssueCard } from './IssueCard';
 import { ScoreHero, GradientBars, SectionPill, Chip, PILL } from './vitals';
-import { SegmentedToggle } from './controls';
+import { SegmentedToggle, ImpactMeter, StatusPill, type PillTone } from './controls';
 import { Emoji, DIM_EMOJI } from './emoji';
-import { scoreBand, readinessStyle } from '@/lib/score';
+
+// Publication readiness → status-pill tone.
+const READINESS_TONE: Record<string, PillTone> = {
+  'Ready to Publish': 'green',
+  'Needs Minor Revision': 'blue',
+  'Needs Major Revision': 'amber',
+  'Not Ready': 'red',
+};
+import { scoreBand } from '@/lib/score';
 import type { CategoryScore, EvaluationResult } from '@/lib/types';
 
 export function Scorecard({ result }: { result: EvaluationResult }) {
@@ -29,21 +36,6 @@ export function Scorecard({ result }: { result: EvaluationResult }) {
           )}
         </div>
       </section>
-
-      {/* Priority issues */}
-      {result.critical_issues.length > 0 && (
-        <Card>
-          <SectionPill
-            label={`Priority · ${result.critical_issues.length}`}
-            tone={PILL.priority}
-          />
-          <div className="mt-3 space-y-2">
-            {result.critical_issues.map((issue, i) => (
-              <IssueCard key={i} issue={issue} defaultOpen={i === 0} />
-            ))}
-          </div>
-        </Card>
-      )}
 
       {/* Strengths */}
       {result.strengths.length > 0 && (
@@ -78,19 +70,6 @@ export function Scorecard({ result }: { result: EvaluationResult }) {
       {/* Dimension breakdown — gradient bars or compact list */}
       <BreakdownCard categories={result.categories} />
 
-      {/* Detailed feedback */}
-      {result.categories.some((c) => c.issues.length || c.recommendations.length) && (
-        <Collapsible label="Detailed feedback" tone={PILL.detail}>
-          <div className="space-y-3">
-            {result.categories
-              .filter((c) => c.issues.length || c.recommendations.length)
-              .map((c) => (
-                <CategoryDetail key={c.key} category={c} />
-              ))}
-          </div>
-        </Collapsible>
-      )}
-
       <p className="ink-soft pb-2 text-center text-[10px]">
         {result.meta.evaluator}
         {result.meta.model ? ` · ${result.meta.model}` : ''} · schema v
@@ -102,7 +81,6 @@ export function Scorecard({ result }: { result: EvaluationResult }) {
 
 function Verdict({ result }: { result: EvaluationResult }) {
   const band = scoreBand(result.overall_score);
-  const rs = readinessStyle[result.publication_readiness];
   const up = result.overall_score >= 80;
   const sub = result.publication_ready
     ? 'Meets TIES standards'
@@ -122,10 +100,10 @@ function Verdict({ result }: { result: EvaluationResult }) {
         {band.label}
       </span>
       <div className="min-w-0">
-        <div className="truncate text-sm font-bold" style={{ color: rs.fg }}>
+        <StatusPill tone={READINESS_TONE[result.publication_readiness] ?? 'gray'} dot>
           {result.publication_readiness}
-        </div>
-        <div className="ink-soft truncate text-[11px]">{sub}</div>
+        </StatusPill>
+        <div className="ink-soft mt-1 truncate text-[11px]">{sub}</div>
       </div>
     </div>
   );
@@ -136,7 +114,7 @@ function Card({ children }: { children: ReactNode }) {
 }
 
 function BreakdownCard({ categories }: { categories: CategoryScore[] }) {
-  const [view, setView] = useState<'bars' | 'list'>('bars');
+  const [view, setView] = useState<'bars' | 'list' | 'impact'>('bars');
   return (
     <Card>
       <div className="mb-3 flex items-center justify-between">
@@ -147,15 +125,37 @@ function BreakdownCard({ categories }: { categories: CategoryScore[] }) {
           options={[
             { value: 'bars', label: 'Bars' },
             { value: 'list', label: 'List' },
+            { value: 'impact', label: 'Impact' },
           ]}
         />
       </div>
-      {view === 'bars' ? (
-        <GradientBars categories={categories} />
-      ) : (
-        <DimensionList categories={categories} />
-      )}
+      {view === 'bars' && <GradientBars categories={categories} />}
+      {view === 'list' && <DimensionList categories={categories} />}
+      {view === 'impact' && <ImpactList categories={categories} />}
     </Card>
+  );
+}
+
+// How much each dimension weighs on the final score (Constitution weights).
+function ImpactList({ categories }: { categories: CategoryScore[] }) {
+  const sorted = [...categories].sort((a, b) => b.weight - a.weight);
+  return (
+    <div>
+      <p className="ink-soft mb-2.5 text-[11px] leading-relaxed">
+        How much each dimension moves the final score for this content type.
+      </p>
+      <div className="space-y-2.5">
+        {sorted.map((c) => (
+          <ImpactMeter
+            key={c.key}
+            label={c.name}
+            value={Math.round(c.weight * 100)}
+            max={40}
+            suffix="%"
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -185,45 +185,3 @@ function DimensionList({ categories }: { categories: CategoryScore[] }) {
   );
 }
 
-function CategoryDetail({ category }: { category: CategoryScore }) {
-  return (
-    <div>
-      <div className="mb-1.5 flex items-baseline justify-between">
-        <span className="text-sm font-semibold">{category.name}</span>
-        <span className="ink-soft text-xs tabular-nums">{category.score}/100</span>
-      </div>
-      <div className="space-y-2">
-        {category.issues.map((issue, i) => (
-          <IssueCard key={i} issue={issue} />
-        ))}
-        {category.recommendations.map((r, i) => (
-          <p key={i} className="ink-soft flex gap-2 pl-1 text-xs">
-            <span className="text-saffron-500">→</span>
-            {r}
-          </p>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Collapsible({
-  label,
-  tone,
-  children,
-}: {
-  label: string;
-  tone: (typeof PILL)[keyof typeof PILL];
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <section className="card p-4">
-      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between">
-        <SectionPill label={label} tone={tone} />
-        <span className="ink-soft text-xs">{open ? '▲' : '▼'}</span>
-      </button>
-      {open && <div className="mt-3">{children}</div>}
-    </section>
-  );
-}

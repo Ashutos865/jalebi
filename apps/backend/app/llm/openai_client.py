@@ -38,14 +38,20 @@ class OpenAICompatibleClient(LLMClient):
         return self._client
 
     async def complete(
-        self, *, system: str, prompt: str, max_tokens: int = 16000
+        self, *, system: str, prompt: str, max_tokens: int = 16000,
+        temperature: float = 0.0,
     ) -> LLMResponse:
         client = self._get_client()
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ]
-        base = dict(model=self._model, messages=messages, max_tokens=max_tokens)
+        # temperature 0 (+ a fixed seed where the provider honours it) makes scoring
+        # reproducible: identical content yields identical model output.
+        base = dict(
+            model=self._model, messages=messages, max_tokens=max_tokens,
+            temperature=temperature, seed=7,
+        )
 
         # Try JSON mode first (GPT/Claude honor it). Some OpenRouter models don't
         # support response_format and 400 — retry once without it; the prompt still

@@ -1,0 +1,126 @@
+"""HybridEvaluator — the TIES scoring pipeline.
+
+Runs the deterministic rules engine (~70%), asks the model for constrained judgment
+(~30%, temperature 0), and combines them under the Constitution's weights and hard
+caps. An in-process cache keyed by content hash guarantees that re-evaluating the
+same article returns an identical result — killing the score wobble.
+
+When `client is None` (mock provider) it runs rules-only: still deterministic,
+still rule-anchored, no model call.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from collections import OrderedDict
+from typing import Awaitable, Callable, List, Optional
+
+from app.llm.client import LLMClient
+from app.pipeline.base import Evaluator
+from app.pipeline.text_features import analyze
+from app.scoring import ai_prompt, rules
+from app.scoring.engine import AIReport, combine
+from app.schemas.evaluation import (
+    EvaluationMeta, EvaluationRequest, EvaluationResult,
+)
+from app.util import elapsed_ms, now
+
+Retriever = Callable[[str, str], Awaitable[List[str]]]
+
+# content-hash -> AIReport. Bounded; identical content reuses the same judgment.
+_AI_CACHE: "OrderedDict[str, AIReport]" = OrderedDict()
+_AI_CACHE_MAX = 256
+
+
+def _content_key(text: str, content_type: str, model: str) -> str:
+    norm = re.sub(r"\s+", " ", text.strip())
+    return hashlib.sha256(f"{model}|{content_type}|{norm}".encode()).hexdigest()
+
+
+class HybridEvaluator(Evaluator):
+    def __init__(
+        self,
+        *,
+        client: Optional[LLMClient] = None,
+        provider: str = "hybrid",
+        model: str = "",
+        retriever: Optional[Retriever] = None,
+        max_attempts: int = 2,
+    ):
+        self._client = client
+        self.name = provider
+        self._model = model
+        self._retriever = retriever
+        self._max_attempts = max_attempts
+
+    async def evaluate(self, request: EvaluationRequest) -> EvaluationResult:
+        started = now()
+        ct = request.content_type.value
+        features = analyze(request.text)
+
+        knowledge: List[str] = []
+        if self._retriever is not None:
+            try:
+                knowledge = await self._retriever(request.text, ct)
+            except Exception:
+                knowledge = []
+
+        rule_report = rules.analyze(request.text, request.title, ct)
+        ai_report = await self._judge(request, knowledge)
+        composed = combine(rule_report, ai_report, ct)
+
+        return EvaluationResult(
+            overall_score=composed.overall,
+            publication_ready=composed.publication_ready,
+            publication_readiness=composed.readiness,
+            content_type=request.content_type,
+            summary=composed.summary,
+            categories=composed.categories,
+            critical_issues=composed.critical_issues,
+            strengths=composed.strengths,
+            next_steps=composed.next_steps,
+            meta=EvaluationMeta(
+                evaluator=self.name, model=self._model,
+                content_type=request.content_type, word_count=features.word_count,
+                duration_ms=elapsed_ms(started), knowledge_used=len(knowledge),
+            ),
+        )
+
+    async def _judge(self, request: EvaluationRequest, knowledge: List[str]) -> AIReport:
+        """Constrained AI judgment, cached by content hash for reproducibility."""
+        if self._client is None:
+            return AIReport()  # rules-only; engine falls back to rule scores
+
+        key = _content_key(request.text, request.content_type.value, self._model)
+        if key in _AI_CACHE:
+            _AI_CACHE.move_to_end(key)
+            return _AI_CACHE[key]
+
+        system = ai_prompt.build_system(request.content_type.value, knowledge)
+        user = ai_prompt.build_user(request.title, request.text)
+        report = await self._call_with_repair(system, user)
+
+        _AI_CACHE[key] = report
+        _AI_CACHE.move_to_end(key)
+        if len(_AI_CACHE) > _AI_CACHE_MAX:
+            _AI_CACHE.popitem(last=False)
+        return report
+
+    async def _call_with_repair(self, system: str, user: str) -> AIReport:
+        prompt = user
+        last = ""
+        for _ in range(self._max_attempts):
+            resp = await self._client.complete(
+                system=system, prompt=prompt, temperature=0.0
+            )
+            try:
+                return ai_prompt.parse(resp.text)
+            except (json.JSONDecodeError, ValueError) as e:
+                last = str(e)
+                prompt = (
+                    f"{user}\n\nYour previous reply was not valid JSON ({last}). "
+                    "Return ONLY the corrected JSON object."
+                )
+        # Judgment failed after retries — degrade to rules-only rather than error out.
+        return AIReport(summary="(AI judgment unavailable; scored on deterministic rules.)")
