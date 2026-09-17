@@ -26,7 +26,10 @@ export default defineConfig({
       'http://localhost/*',
       'http://127.0.0.1/*',
     ],
-    optional_host_permissions: ['https://*/*', 'http://*/*'],
+    // HTTPS only: a self-hosted backend is granted on demand from Settings, and
+    // field contents must never travel over plaintext. localhost for development
+    // is already covered by host_permissions above.
+    optional_host_permissions: ['https://*/*'],
     // Google OAuth for in-doc highlights + comments (chrome.identity). Create a
     // "Chrome Extension" OAuth client and set GOOGLE_OAUTH_CLIENT_ID before building.
     oauth2: {
