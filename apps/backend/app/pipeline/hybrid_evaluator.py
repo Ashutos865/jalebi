@@ -19,7 +19,7 @@ from typing import Awaitable, Callable, List, Optional
 from app.llm.client import LLMClient
 from app.pipeline.base import Evaluator
 from app.pipeline.text_features import analyze
-from app.scoring import ai_prompt, rules
+from app.scoring import ai_prompt, rules, sop_header
 from app.scoring.engine import AIReport, combine
 from app.schemas.evaluation import (
     EvaluationMeta, EvaluationRequest, EvaluationResult,
@@ -57,17 +57,28 @@ class HybridEvaluator(Evaluator):
     async def evaluate(self, request: EvaluationRequest) -> EvaluationResult:
         started = now()
         ct = request.content_type.value
-        features = analyze(request.text)
+
+        # TIES SOP: the pre-drafting header block and the references list are
+        # metadata, not prose. Grading them inflates the word count (against a
+        # strict 300-350 window) and skews sourcing/headline scores, so the
+        # article body is isolated first. Documents with no header are unchanged.
+        header = sop_header.parse(request.text)
+        body = header.body or request.text
+
+        features = analyze(body)
 
         knowledge: List[str] = []
         if self._retriever is not None:
             try:
-                knowledge = await self._retriever(request.text, ct)
+                knowledge = await self._retriever(body, ct)
             except Exception:
                 knowledge = []
 
-        rule_report = rules.analyze(request.text, request.title, ct)
-        ai_report = await self._judge(request, knowledge)
+        # Prefer the SOP HEADING over the Google Doc filename when present.
+        title = header.get("heading") or request.title
+
+        rule_report = rules.analyze(body, title, ct)
+        ai_report = await self._judge(request, knowledge, body=body, title=title)
         composed = combine(rule_report, ai_report, ct)
 
         return EvaluationResult(
@@ -87,18 +98,31 @@ class HybridEvaluator(Evaluator):
             ),
         )
 
-    async def _judge(self, request: EvaluationRequest, knowledge: List[str]) -> AIReport:
-        """Constrained AI judgment, cached by content hash for reproducibility."""
+    async def _judge(
+        self,
+        request: EvaluationRequest,
+        knowledge: List[str],
+        body: Optional[str] = None,
+        title: Optional[str] = None,
+    ) -> AIReport:
+        """Constrained AI judgment, cached by content hash for reproducibility.
+
+        `body`/`title` are the SOP-stripped article and heading; the model judges
+        the writing, not the metadata block.
+        """
         if self._client is None:
             return AIReport()  # rules-only; engine falls back to rule scores
 
-        key = _content_key(request.text, request.content_type.value, self._model)
+        text = body if body is not None else request.text
+        heading = title if title is not None else request.title
+
+        key = _content_key(text, request.content_type.value, self._model)
         if key in _AI_CACHE:
             _AI_CACHE.move_to_end(key)
             return _AI_CACHE[key]
 
         system = ai_prompt.build_system(request.content_type.value, knowledge)
-        user = ai_prompt.build_user(request.title, request.text)
+        user = ai_prompt.build_user(heading, text)
         report = await self._call_with_repair(system, user)
 
         _AI_CACHE[key] = report
