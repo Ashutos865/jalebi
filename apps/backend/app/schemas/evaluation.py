@@ -8,7 +8,7 @@ feedback is always actionable and grounded in the actual content.
 from __future__ import annotations
 
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -95,6 +95,31 @@ class EvaluationMeta(BaseModel):
     knowledge_used: int = 0          # # of knowledge-base passages retrieved (RAG, P4)
 
 
+class SopCheckItem(BaseModel):
+    """One mechanical TIES SOP check (header, word count, structure, references)."""
+
+    name: str
+    passed: bool
+    detail: str = ""
+    severity: str = "required"       # required | advisory
+
+
+class SopComplianceReport(BaseModel):
+    """SOP compliance, reported alongside — never folded into — the editorial
+    score. Process compliance and writing quality are different questions."""
+
+    checked: bool = False            # False when the doc has no SOP header
+    compliant: bool = False          # no failing `required` check
+    checks: List[SopCheckItem] = Field(default_factory=list)
+    header_present: bool = False
+    header_fields: Dict[str, str] = Field(default_factory=dict)
+    missing_fields: List[str] = Field(default_factory=list)
+    word_count: int = 0
+    word_min: Optional[int] = None
+    word_max: Optional[int] = None
+    reference_urls: List[str] = Field(default_factory=list)
+
+
 class EvaluationRequest(BaseModel):
     text: str = Field(..., min_length=1, description="The document text to evaluate.")
     content_type: ContentType = ContentType.news_article
@@ -105,6 +130,12 @@ class EvaluationRequest(BaseModel):
     doc_url: Optional[str] = Field(None, description="Full Google Doc URL, tracked.")
     provider: Optional[str] = Field(
         None, description="Requested AI provider (must be configured & allowed)."
+    )
+    word_min: Optional[int] = Field(
+        None, ge=0, description="Assignment word floor; overrides the SOP default."
+    )
+    word_max: Optional[int] = Field(
+        None, ge=0, description="Assignment word ceiling; overrides the SOP default."
     )
 
 
@@ -118,4 +149,5 @@ class EvaluationResult(BaseModel):
     critical_issues: List[Issue] = Field(default_factory=list)
     strengths: List[str] = Field(default_factory=list)
     next_steps: List[str] = Field(default_factory=list)
+    sop: SopComplianceReport = Field(default_factory=SopComplianceReport)
     meta: EvaluationMeta
