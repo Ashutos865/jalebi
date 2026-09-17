@@ -74,6 +74,45 @@ def weights_for(content_type: str) -> Dict[str, float]:
     return WEIGHTS_BY_TYPE.get(content_type, DEFAULT_WEIGHTS)
 
 
+# ── Research-integrity caps (TIES Content SOP §2, §4, "Zero-Tolerance") ──────
+# AI-generated text must not exceed 20% of the article; plagiarism must be under
+# 15%. These are recorded from a real checker (Quillbot / CopyLeaks /
+# SmallSEOTools / DupliChecker), never estimated by Jalebi.
+MAX_AI_PERCENT = 20.0
+MAX_PLAGIARISM_PERCENT = 15.0
+
+
+def integrity_verdict(ai_percent, plagiarism_percent) -> dict:
+    """Judge recorded AI/plagiarism percentages against the SOP caps.
+
+    `unchecked` is a distinct state from a pass: an article nobody has run
+    through a checker has not satisfied the SOP, it simply has no result yet.
+    """
+    if ai_percent is None or plagiarism_percent is None:
+        return {
+            "checked": False, "passed": False, "breaches": [],
+            "ai_percent": ai_percent, "plagiarism_percent": plagiarism_percent,
+            "ai_limit": MAX_AI_PERCENT, "plagiarism_limit": MAX_PLAGIARISM_PERCENT,
+        }
+
+    breaches = []
+    if ai_percent > MAX_AI_PERCENT:
+        breaches.append(
+            f"AI-generated content is {ai_percent:.0f}% — the SOP allows at most "
+            f"{MAX_AI_PERCENT:.0f}%."
+        )
+    if plagiarism_percent > MAX_PLAGIARISM_PERCENT:
+        breaches.append(
+            f"Plagiarism is {plagiarism_percent:.0f}% — the SOP requires under "
+            f"{MAX_PLAGIARISM_PERCENT:.0f}%."
+        )
+    return {
+        "checked": True, "passed": not breaches, "breaches": breaches,
+        "ai_percent": ai_percent, "plagiarism_percent": plagiarism_percent,
+        "ai_limit": MAX_AI_PERCENT, "plagiarism_limit": MAX_PLAGIARISM_PERCENT,
+    }
+
+
 # ── Short-form (TIES Content SOP) ────────────────────────────────────────────
 # The SOP governs standard short-form analytical articles: 300–350 words, with
 # "innovative bullet points, numbered lists, or key takeaways" required.

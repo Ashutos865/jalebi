@@ -5,7 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -49,6 +51,16 @@ class Document(Base):
     editor: Mapped[str] = mapped_column(String(200), default="")
     published_for: Mapped[str] = mapped_column(String(200), default="")
     co_authors: Mapped[str] = mapped_column(String(500), default="")
+    # SOP §4: the editor runs the article through real AI/plagiarism checkers
+    # (Quillbot, CopyLeaks, SmallSEOTools, DupliChecker) and records the result
+    # here. Deliberately recorded, never estimated — a guessed score would be
+    # unreliable, and a false accusation affects an intern's certificate and LOR.
+    ai_percent: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    plagiarism_percent: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    integrity_checked_by: Mapped[str] = mapped_column(String(200), default="")
+    integrity_checked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

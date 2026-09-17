@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Document, Evaluation, User
+from app.scoring.constitution import integrity_verdict
 
 
 async def list_documents(session: AsyncSession) -> List[dict]:
@@ -61,6 +62,16 @@ async def list_documents(session: AsyncSession) -> List[dict]:
             "editor": doc.editor if doc else "",
             "published_for": doc.published_for if doc else "",
             "co_authors": doc.co_authors if doc else "",
+            # SOP §4 research integrity — recorded from the editor's checker.
+            "integrity": integrity_verdict(
+                doc.ai_percent if doc else None,
+                doc.plagiarism_percent if doc else None,
+            ),
+            "integrity_checked_by": doc.integrity_checked_by if doc else "",
+            "integrity_checked_at": (
+                doc.integrity_checked_at.isoformat()
+                if doc and doc.integrity_checked_at else None
+            ),
             "revisions": len(rows),
             "first_score": first_score,
             "latest_score": latest_score,
