@@ -76,6 +76,25 @@ def _sentences(text: str) -> List[str]:
     return sentences.split(text)
 
 
+# Short headings for the reasoning notes, so three different findings do not all
+# appear under one repeated title. Matched on a distinctive fragment of the note.
+_NOTE_TITLES = (
+    ("assert significance", "Asserted significance"),
+    ("No conclusion is drawn", "Conclusion not drawn from evidence"),
+    ("causally", "Nothing explained causally"),
+    ("Sentence lengths", "Uniform sentence rhythm"),
+    ("No comparison", "No comparison or contrast"),
+    ("counter", "No counter-argument considered"),
+)
+
+
+def _note_title(note: str) -> str:
+    for fragment, title in _NOTE_TITLES:
+        if fragment.lower() in note.lower():
+            return title
+    return "Reasoning gap"
+
+
 # Institution words that are both tier-1 source keywords and the kind of body an
 # article accuses. Stripped before judging whether an allegation is sourced, so
 # the subject of the claim cannot pass as evidence for it.
@@ -308,8 +327,12 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
 
     # ── Writing Quality ───────────────────────────────────────────────────
     wq = 100.0
-    # AI clichés
-    cliche_hits = [(p, low.count(p)) for p in C.AI_CLICHES if p in low]
+    # AI clichés. Whole-word, like every other term list: "when it comes to"
+    # is a phrase, but a bare `p in low` would also fire inside a longer word
+    # for the single-word entries, which is how "war" once capped a piece about
+    # a warehouse.
+    cliche_hits = [(p, n) for p in C.AI_CLICHES
+                   if (n := len(re.findall(rf"\b{re.escape(p)}\b", low)))]
     ct = sum(n for _, n in cliche_hits)
     wq -= min(40, ct * 10)
     for p, _ in cliche_hits[:4]:
@@ -330,7 +353,17 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
         ))
     # bias phrases (neutrality → folded into accuracy + writing)
     bias_hits = [p for p in C.BIAS_PHRASES if re.search(rf"\b{re.escape(p)}\b", low)]
-    wq -= min(20, len(bias_hits) * 5)
+    # A few phrases -- "needless to say", "everyone knows" -- are on both lists,
+    # and the writer was charged for each separately: one phrase cost writing 10
+    # as a cliché and another 5 as bias, so the penalty depended on how many
+    # lists happened to contain it rather than on how bad it was. The cliché
+    # rule already covers the prose complaint, so writing charges once.
+    _cliches_hit = {p for p, _ in cliche_hits}
+    bias_new_to_writing = [p for p in bias_hits if p not in _cliches_hit]
+    wq -= min(20, len(bias_new_to_writing) * 5)
+    # Accuracy still charges for every one of them: asserting certainty without
+    # evidence is a different fault from writing a tired phrase, and a piece can
+    # commit it with a phrase that is not a cliché at all.
     acc -= min(15, len(bias_hits) * 5)
     for p in bias_hits[:4]:
         sent = _sentence_at(text, low.find(p))
@@ -445,10 +478,14 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
 
     ins, dep, nar = _clip(ins), _clip(dep), _clip(nar)
 
-    # Surface the reasoning gaps as issues the writer can act on.
+    # Surface the reasoning gaps as issues the writer can act on. These are
+    # distinct observations -- no conclusion drawn, nothing explained causally,
+    # uniform sentence rhythm -- but they all carried the title "Reasoning gap",
+    # so the report showed the same heading three times and read like one
+    # complaint repeated. The note is the finding, so it is the title.
     for note in reasoning_signals.notes[:3]:
         issues.append(RuleIssue(
-            "insight", "Reasoning gap", note,
+            "insight", _note_title(note), note,
             "Analysis that asserts rather than demonstrates reads as filler.",
             "Show the evidence and draw the conclusion from it explicitly.",
             "medium", None,
