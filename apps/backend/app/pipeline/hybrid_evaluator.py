@@ -38,6 +38,14 @@ Retriever = Callable[[str, str], Awaitable[List[str]]]
 _AI_CACHE: "OrderedDict[str, AIReport]" = OrderedDict()
 _AI_CACHE_MAX = 256
 
+# Single-flight: one in-progress model call per cache key, shared by everyone
+# waiting on it. Without this, eight concurrent evaluations of the same document
+# all missed the cache and all called the model -- eight times the cost and
+# eight times the rate-limit consumption for one answer. That is the ordinary
+# case, not a rare one: a writer re-running, or several editors opening the same
+# piece, produce exactly this.
+_AI_INFLIGHT: "dict[str, asyncio.Future[AIReport]]" = {}
+
 
 def _content_key(
     text: str,
@@ -186,9 +194,35 @@ class HybridEvaluator(Evaluator):
             _AI_CACHE.move_to_end(key)
             return _AI_CACHE[key]
 
-        system = ai_prompt.build_system(request.content_type.value, knowledge)
-        user = ai_prompt.build_user(heading, text)
-        report = await self._call_with_repair(system, user)
+        # Someone else is already asking this exact question: wait for their
+        # answer instead of paying for a second identical one.
+        inflight = _AI_INFLIGHT.get(key)
+        if inflight is not None:
+            return await asyncio.shield(inflight)
+
+        # No awaits between the miss and claiming the slot, so two coroutines
+        # cannot both get here for one key.
+        future: "asyncio.Future[AIReport]" = asyncio.get_running_loop().create_future()
+        _AI_INFLIGHT[key] = future
+        try:
+            system = ai_prompt.build_system(request.content_type.value, knowledge)
+            user = ai_prompt.build_user(heading, text)
+            report = await self._call_with_repair(system, user)
+        except BaseException as exc:
+            # The waiters asked the same question, so they get the same answer,
+            # including when it is a failure. Leaving them hanging would turn
+            # one failed call into a stuck request for everyone behind it.
+            if not future.done():
+                future.set_exception(exc)
+                # If every waiter has gone away, nobody will retrieve this and
+                # asyncio would log "exception was never retrieved" at GC.
+                future.exception()
+            raise
+        finally:
+            _AI_INFLIGHT.pop(key, None)
+
+        if not future.done():
+            future.set_result(report)
 
         _AI_CACHE[key] = report
         _AI_CACHE.move_to_end(key)
