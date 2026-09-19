@@ -75,6 +75,46 @@ def _sentences(text: str) -> List[str]:
 # Words that frame a statement as an allegation rather than a report. Inflections
 # are matched explicitly: "allegedly" is the most common form of all and a bare
 # \balleged\b does not reach it.
+# Words carrying no topical meaning, excluded from headline/body comparison so
+# a headline is judged on its subject rather than its grammar.
+_HEADLINE_STOPWORDS = frozenset({
+    "the", "and", "for", "but", "with", "from", "that", "this", "than", "then",
+    "why", "how", "what", "when", "where", "who", "was", "were", "are", "has",
+    "have", "had", "its", "their", "there", "here", "into", "over", "under",
+    "after", "before", "about", "not", "new", "now", "can", "will", "would",
+})
+
+
+def _is_headline_token(word: str) -> bool:
+    """Is this title word worth matching against the body?
+
+    Acronyms are kept regardless of length: RBI, GDP, SEBI and UPI are usually
+    the *subject* of a headline, and dropping them left almost nothing to match.
+    """
+    if word.isupper() and len(word) >= 2:
+        return True
+    return len(word) > 3 and word.lower() not in _HEADLINE_STOPWORDS
+
+
+def _stem(word: str) -> str:
+    """Crude suffix strip so "rates" matches "rate" and "holding" matches "hold".
+
+    Deliberately simple: this only has to make two bags of words comparable, not
+    to be linguistically correct.
+    """
+    w = word.lower()
+    for suffix in ("ing", "ies", "ed", "es", "s"):
+        if len(w) > len(suffix) + 2 and w.endswith(suffix):
+            base = w[: -len(suffix)]
+            return base + "y" if suffix == "ies" else base
+    return w
+
+
+# Below this, there is not enough prose to judge writing quality. Writing starts
+# at 100 and only deducts for faults found, so a one-word draft scored a perfect
+# 100 — nothing was present to deduct for.
+_MIN_ASSESSABLE_WORDS = 40
+
 _ALLEGATION_WORD = re.compile(
     r"\b(?:alleged|allegedly|allegation|allegations|"
     r"accus(?:e|es|ed|ation|ations)|"
@@ -330,8 +370,16 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
                 "Rewrite as a precise, non-sensational headline.", "medium", title,
             ))
         # alignment: content-word overlap with the body
-        tw = {w for w in _WORD.findall(tl) if len(w) > 3}
-        bw = {w.lower() for w in words if len(w) > 3}
+        # Headline/body overlap, compared on stems.
+        #
+        # Two defects here previously punished exactly the concise headlines
+        # house style asks for. `len(w) > 3` discarded every acronym — RBI, GDP,
+        # SEBI, UPI — so a headline built around one had almost no tokens left
+        # to match. And exact string comparison meant "rates" did not match
+        # "rate", so an accurate headline could fall under the threshold and
+        # trip the hard cap.
+        tw = {_stem(w) for w in _WORD.findall(title) if _is_headline_token(w)}
+        bw = {_stem(w) for w in words if len(w) > 2}
         overlap = (len(tw & bw) / len(tw)) if tw else 1.0
         if tw and overlap < 0.34:
             hl -= 30
@@ -382,6 +430,13 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
             "Show the evidence and draw the conclusion from it explicitly.",
             "medium", None,
         ))
+
+    # Writing quality starts at 100 and only deducts for faults found, so a
+    # document with almost no prose in it scored a perfect 100 — there was
+    # nothing present to deduct for. A one-word draft is not well written; it is
+    # unassessable, and saying so is more honest than awarding full marks.
+    if wc < _MIN_ASSESSABLE_WORDS:
+        wq = min(wq, 60.0 + wc * (40.0 / _MIN_ASSESSABLE_WORDS))
 
     dim_scores = {
         "accuracy": _clip(acc),

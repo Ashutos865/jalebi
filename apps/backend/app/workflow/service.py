@@ -129,8 +129,14 @@ def transition(
 
     doc.status = to
 
-    # Phase clocks: reset whenever a new SOP window opens.
-    if to in S.DRAFTING_STATES or to in S.EDITING_STATES:
+    # Phase clocks reset when the PHASE changes, not on every transition.
+    #
+    # `submitted` and `under_review` are both editing states, and `assigned`,
+    # `drafting` and `revising` are all drafting states. Resetting on any
+    # transition meant an editor merely opening a document for review silently
+    # granted a fresh 12 hours — so a piece could sit for days and never report
+    # overdue, and the SOP's 24-30 hour loop was not actually being tracked.
+    if S.phase_of(to) is not None and S.phase_of(to) != S.phase_of(frm):
         doc.phase_started_at = now
     if to == S.SUBMITTED:
         doc.submitted_at = now

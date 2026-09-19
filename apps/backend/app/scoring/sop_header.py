@@ -115,6 +115,38 @@ def _clean_value(raw: str) -> str:
     return v.strip()
 
 
+#: A references heading must start at least this far into the body to be the
+#: real one. Anything earlier is a mid-article mention, not the reference list.
+_REFERENCES_MIN_POSITION = 0.75
+
+
+def _last_references_heading(body: str):
+    """The final references heading in the last quarter of `body`, if any.
+
+    Falls back to the last match anywhere when it is followed by links, since a
+    short article's reference block can legitimately start earlier.
+    """
+    matches = list(_REFERENCES_HEADING.finditer(body))
+    if not matches:
+        return None
+
+    cutoff = len(body) * _REFERENCES_MIN_POSITION
+    for m in reversed(matches):
+        if m.start() >= cutoff:
+            return m
+        # An earlier heading still counts when what follows is a reference list
+        # rather than prose — a short article's block legitimately starts early.
+        # Judged by composition, not by count: one link is a valid bibliography.
+        tail = body[m.end():].strip()
+        if not tail:
+            continue
+        urls = _URL.findall(tail)
+        non_url_words = len(_URL.sub(" ", tail).split())
+        if urls and non_url_words <= 4 * len(urls):
+            return m
+    return None
+
+
 def _looks_filled(value: str) -> bool:
     v = value.strip().strip("_").strip()
     if not v or _UNFILLED.match(v):
@@ -173,7 +205,13 @@ def parse(text: str) -> SopHeader:
         body = text
 
     # --- split references -----------------------------------------------------
-    ref_match = _REFERENCES_HEADING.search(body)
+    # The LAST plausible heading, not the first. A standalone line reading
+    # "Sources" or "References" can legitimately appear mid-article (a subheading
+    # about sourcing, a pull-quote), and taking the first match truncated
+    # everything after it — in testing, 89% of an article was silently discarded
+    # and never scored. The references block is by definition at the end, so the
+    # candidate must also sit in the final quarter of the document.
+    ref_match = _last_references_heading(body)
     if ref_match:
         out.has_references = True
         out.references = body[ref_match.end():].strip()

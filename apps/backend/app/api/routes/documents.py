@@ -94,7 +94,11 @@ async def list_docs(
 
 
 class DocPatch(BaseModel):
+    """Tracker edits. `status` is validated by the state machine, so this is a
+    convenience wrapper over PUT /status rather than a way around it."""
+
     status: Optional[str] = None
+    reason: str = Field("", max_length=2000)   # required to reassign or scrap
     editor: Optional[str] = None
     published_for: Optional[str] = None
     co_authors: Optional[str] = None
@@ -114,10 +118,18 @@ async def patch_doc(
     ).scalar_one_or_none()
     if doc is None:
         raise HTTPException(404, "Document not tracked yet.")
-    if body.status is not None:
-        if body.status not in _STATUSES:
-            raise HTTPException(422, f"status must be one of {sorted(_STATUSES)}")
-        doc.status = body.status
+    if body.status is not None and body.status != doc.status:
+        # Route through the state machine rather than writing doc.status
+        # directly. A raw write here bypassed every invariant PUT /status
+        # enforces: a document could jump straight to `published` with no
+        # editor recorded, no integrity check, no notification and no legal
+        # transition left out of it.
+        try:
+            workflow.transition(doc, body.status, actor=user, reason=body.reason)
+        except states.TransitionError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
     if body.editor is not None:
         doc.editor = body.editor
     if body.published_for is not None:
