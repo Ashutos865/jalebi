@@ -70,6 +70,12 @@ async def lifespan(app: FastAPI):
                         "Ignoring invalid rubric override for %s: %s",
                         row.content_type, exc,
                     )
+
+            # The cache is current as of now; the per-worker TTL refresh in
+            # app/scoring/rubric_sync.py takes it from here.
+            from app.scoring import rubric_sync
+
+            rubric_sync.mark_fresh()
     except Exception:  # keep the API up even if the DB is unreachable
         # Logged with a traceback, not printed: a failed reindex leaves the
         # vector store silently empty and RAG quietly stops working, which is

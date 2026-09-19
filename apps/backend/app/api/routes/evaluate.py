@@ -50,6 +50,13 @@ async def evaluate(
             status_code=413,
             detail=f"Document exceeds {settings.max_document_chars} characters.",
         )
+    # Rubric weights live in a per-process cache; resynchronise it from the DB
+    # if this worker's copy has gone stale, so an admin's change reaches every
+    # worker rather than only the one that served the write.
+    from app.scoring import rubric_sync
+
+    await rubric_sync.refresh_if_stale(session)
+
     provider = _resolve_provider(request.provider)
     result = await get_evaluator(provider).evaluate(request)
 

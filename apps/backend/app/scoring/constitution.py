@@ -139,6 +139,30 @@ def clear_override(content_type: str) -> None:
     _overrides.pop(content_type, None)
 
 
+def replace_all_overrides(rows: Dict[str, Dict[str, float]]) -> None:
+    """Swap the whole override cache for what the database now holds.
+
+    `_overrides` is per-process. The deployment guide runs four workers, so an
+    admin's weight change only reached the one worker that served the write and
+    the others kept scoring on stale weights until the next restart -- the same
+    article scoring differently depending on which worker answered. This lets a
+    worker resynchronise from the shared source of truth.
+
+    Invalid rows are skipped rather than allowed to zero a content type's
+    scores, matching what startup does.
+    """
+    fresh: Dict[str, Dict[str, float]] = {}
+    for content_type, weights in rows.items():
+        try:
+            validate_weights(weights)
+        except WeightError:
+            continue
+        fresh[content_type] = dict(weights)
+
+    _overrides.clear()
+    _overrides.update(fresh)
+
+
 def get_override(content_type: str) -> Optional[Dict[str, float]]:
     return _overrides.get(content_type)
 

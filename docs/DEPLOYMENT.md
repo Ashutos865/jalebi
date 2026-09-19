@@ -87,6 +87,11 @@ would vary by which one answered.
 The rate limiter is also per-process, so the effective limit is
 `JALEBI_RATE_LIMIT × workers`. Use a shared store if you need a strict global limit.
 
+Rubric weight overrides are cached per process as well, but the database stays the
+source of truth: each worker re-reads the overrides table when its cache is more than
+30 seconds old. An admin's change therefore reaches every worker within about half a
+minute, rather than only the one that happened to serve the write.
+
 ## 5. AI provider
 
 Optional. Jalebi scores without one — roughly 72% of the score is deterministic — and
