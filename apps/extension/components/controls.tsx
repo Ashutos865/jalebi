@@ -3,7 +3,7 @@
 // pills, a segmented pill toggle, and an embedded source card. Reused across the
 // sidebar where each pattern fits.
 import type { ReactNode } from 'react';
-import { Emoji, type EmojiName } from './emoji';
+import { Icon as Emoji, type IconName as EmojiName } from './icons';
 
 // Tiny uppercase label that sits above a headline ("Statistics").
 export function Eyebrow({ children }: { children: ReactNode }) {

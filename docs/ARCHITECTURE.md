@@ -1,212 +1,217 @@
 # Jalebi — Architecture
 
-This document captures the decisions behind Jalebi and is updated as the system
-evolves. It is deliberately lean: it records *why* things are the way they are, so
-future contributors don't re-lit­igate settled choices.
+Why the system is shaped the way it is. Kept lean and current: where a decision has
+been reversed, the reversal is recorded rather than the original intent.
 
 ---
 
 ## 1. What Jalebi is
 
-An editorial quality-assurance system. It behaves like a Senior Managing Editor:
-it evaluates content against TIES' editorial standards, explains weaknesses,
-recommends fixes, and rules on publication readiness. It **coaches**, it does not
-rewrite.
+An editorial quality-assurance system. It behaves like a managing editor: it evaluates
+content against an editorial standard, explains weaknesses, recommends fixes, and rules
+on publication readiness. It **coaches**; it does not rewrite.
 
-Scale target: ~100 internal users. This is an organizational tool, so we optimize
-for **maintainability, editorial quality, and modularity** — not for
-hyperscale distributed infrastructure.
+Scale target: roughly 100 internal users. This is an organisational tool, so it
+optimises for maintainability, editorial quality and explainability — not for
+hyperscale infrastructure.
 
 ---
 
 ## 2. System shape
 
 ```
-┌──────────────────────────┐        HTTPS/JSON         ┌────────────────────────────┐
-│  Chrome Extension (MV3)   │  ───────────────────────▶ │  FastAPI backend           │
-│  WXT · React · Tailwind   │   POST /api/evaluate      │                            │
-│                           │                           │  ┌──────────────────────┐  │
-│  content script:          │                           │  │ Editorial Pipeline   │  │
-│   detect Google Doc       │   ◀───────────────────────│  │  1 classify          │  │
-│   extract text            │   EvaluationResult JSON   │  │  2 review dimensions │  │
-│  side panel (React):      │                           │  │  3 judge readiness   │  │
-│   Evaluate → scorecard    │                           │  └──────────┬───────────┘  │
-└──────────────────────────┘                           │             │              │
-                                                        │      ┌──────▼───────┐      │
-                                                        │      │ Evaluator     │     │
-                                                        │      │  Mock (now)   │     │
-                                                        │      │  Claude (P2)  │     │
-                                                        │      └──────────────┘      │
-                                                        └────────────────────────────┘
+┌───────────────────────────┐      HTTPS/JSON       ┌──────────────────────────────┐
+│  Chrome extension (MV3)   │ ────────────────────▶ │  FastAPI                     │
+│  WXT · React · Tailwind   │  POST /api/evaluate   │                              │
+│                           │                       │  ┌────────────────────────┐  │
+│  content script:          │ ◀──────────────────── │  │ HybridEvaluator        │  │
+│   detect Google Doc       │   EvaluationResult    │  │  rules  (deterministic)│  │
+│   extract text via export │                       │  │  + AI judgment (opt.)  │  │
+│  side panel (React):      │                       │  └───────────┬────────────┘  │
+│   score · SOP · workflow  │                       │              │               │
+└───────────────────────────┘                       │      ┌───────▼────────┐      │
+                                                    │      │ scoring engine │      │
+                                                    │      │ blend · caps   │      │
+                                                    │      │ bands · issues │      │
+                                                    │      └────────────────┘      │
+                                                    └──────────────────────────────┘
 ```
 
 ---
 
-## 3. Key decisions (with rationale)
+## 3. Key decisions
 
-### 3.1 Google Docs text extraction — export endpoint, not DOM scraping
-Modern Google Docs renders the document to `<canvas>`, so the text is **not in the
-DOM** and cannot be reliably scraped. The two viable options are:
+### 3.1 Google Docs text extraction — the export endpoint
 
-- **Annotated Canvas API** — how Grammarly/LanguageTool draw inline underlines.
-  Requires an explicit whitelist grant from Google. Out of our control; rejected for v1.
-- **Export endpoint** — `https://docs.google.com/document/d/{docId}/export?format=txt`.
-  A content script running on `docs.google.com` fetches this **with the user's
-  existing session cookies** (same-origin) and receives clean plain text. No OAuth
-  consent screen, no whitelist. **Chosen for v1.**
+Modern Google Docs renders to `<canvas>`, so the text is **not in the DOM** and cannot
+be scraped. Two options existed:
 
-Consequence: Jalebi feedback lives in the **sidebar and quotes the passages it
-refers to**, rather than drawing marks inside the document. This is the right
-trade for an internal tool and removes a dependency we cannot influence.
+- **Annotated Canvas API** — how Grammarly draws inline underlines. Requires an explicit
+  whitelist grant from Google. Out of our control; rejected.
+- **Export endpoint** — `docs.google.com/document/d/{id}/export?format=txt`, fetched by
+  a content script with the user's existing session. No OAuth consent, no whitelist.
+  **Chosen.**
 
-Upgrade path (P3): Google Docs API + OAuth for structured extraction (tabs,
-headings, comments) and to support docs the export path can't reach.
+Consequence: Jalebi's feedback lives in the sidebar and quotes the passages it refers
+to, rather than marking up the document. The right trade for an internal tool, and it
+removes a dependency we cannot influence.
 
-### 3.2 Extension framework — WXT
-Vite-based, fastest HMR, first-class MV3 + side panel + React, not locked to a
-bundler. 2025 consensus favors it over Plasmo/CRXJS for new builds.
+### 3.2 Scoring is deterministic first, AI second
 
-### 3.3 Backend — FastAPI
-Typed (Pydantic) request/response, async, OpenAPI docs for free, natural fit for
-AI orchestration and streaming later.
+The score is a blend, per dimension, of a **rules engine** and **model judgment**. Each
+dimension carries an `alpha` — its deterministic share. Overall, about **72%** of the
+score is reproducible with no API key at all.
 
-### 3.4 Evaluation is a pipeline, not a prompt
-Editorial review is decomposed into stages — **classify → review each dimension →
-judge readiness** — each with a focused responsibility and structured output. This
-is more consistent and transparent than one monolithic prompt, and it upgrades to
-LangGraph-style multi-agent orchestration (P5) without changing the API contract.
+This is the most consequential decision in the system, and it is deliberate:
 
-### 3.5 Mock first, Claude behind an interface
-`Evaluator` is an abstract interface. `MockEvaluator` (P1) produces realistic,
-**content-aware** feedback by analyzing real text features (citations, headline,
-readability, AI clichés, sensationalism, hedging). `ClaudeEvaluator` (P2) implements
-the same interface. The API, schema, and UI never learn which one ran.
+- **Editors will not trust a number that changes between runs.** The same text always
+  produces the same score.
+- **It works with no provider configured**, which is how every test runs and how a
+  newsroom with no budget can use it.
+- **A failing provider degrades rather than breaks.** A timeout or an unparseable reply
+  falls back to rules-only and still returns a scorecard.
 
-### 3.6 Content type is writer-selected in v1
-The writer picks the content type (News Article, Policy Analysis, …) in the sidebar;
-each type maps to a **rubric** (a weighted set of editorial dimensions). An automatic
-content-type classifier stage is added in P2.
+`app/scoring/reasoning.py` is what makes this viable for the dimensions that look
+subjective. Rather than pattern-matching vocabulary, it measures the *structure* of
+reasoning: conclusions bound to stated premises, causal chains, comparison,
+acknowledged counter-argument, concrete specifics, and filler that announces
+significance without supplying it. Every signal is density-capped so padding cannot
+inflate a score.
+
+### 3.3 Hard caps override everything
+
+Some failures should not be survivable by scoring well elsewhere. A fabricated
+quotation caps the result at 0; a fabricated statistic at 20; an unsupported claim at
+50. Caps are applied after the weighted blend, and the triggering passage is quoted
+back.
+
+### 3.4 One evaluator
+
+`HybridEvaluator` handles every provider, including `mock` (the same class with no
+client, so rules-only). An earlier design had separate `MockEvaluator`,
+`ClaudeEvaluator`, `LLMEvaluator` and `MultiAgentEvaluator` classes behind an
+`Evaluator` interface; all four became unreachable when the hybrid engine landed and
+have been deleted, along with the `app/rubrics` weighting vocabulary that only they
+read. The `Evaluator` ABC remains as the seam.
+
+### 3.5 Fact-checking surfaces, never verifies
+
+`POST /api/factcheck` returns claims ranked by how badly they need review, with the
+nearest citation attached. Jalebi does not fetch URLs or judge whether a source supports
+a claim. It cannot do either reliably, and a tool that appeared to would be trusted and
+wrong — the failure mode the feature exists to prevent.
+
+### 3.6 Integrity percentages are recorded, not estimated
+
+AI-content and plagiarism figures come from the editor's own tooling and are stored on
+the document. Jalebi applies the thresholds and gates sign-off. It does not run AI
+detection: published research puts commercial detectors' false-positive rate on
+non-native English writing at 61.3%, and a wrong result here lands in a process that
+affects someone's certificate and reference. See [PRODUCT.md](../PRODUCT.md) §2.2.
+
+### 3.7 Extension framework — WXT
+
+Vite-based, first-class MV3 and side-panel support, not locked to a bundler.
+
+### 3.8 Backend — FastAPI
+
+Typed request/response via Pydantic, async, OpenAPI for free.
 
 ---
 
 ## 4. The evaluation contract
 
-The Pydantic models in `apps/backend/app/schemas/evaluation.py` are the **single
-source of truth**. The extension's `lib/types.ts` mirrors them by hand today; P2
-introduces schema codegen so they can never drift.
-
-Shape (abridged):
+The Pydantic models in `apps/backend/app/schemas/evaluation.py` are the single source of
+truth; `apps/extension/lib/types.ts` mirrors them by hand. Shape, abridged:
 
 ```jsonc
 {
-  "overall_score": 91,
+  "overall_score": 76,
   "publication_ready": false,
   "publication_readiness": "Needs Minor Revision",
-  "content_type": "news_article",
+  "content_type": "analysis",
   "summary": "...",
   "categories": [
-    { "name": "Research", "score": 95, "weight": 0.2,
+    { "name": "Research Accuracy", "key": "accuracy", "score": 85, "weight": 0.30,
       "issues": [ { "problem": "...", "explanation": "...", "impact": "...",
-                    "suggestion": "...", "priority": "high",
-                    "example": "...", "quote": "..." } ],
-      "recommendations": ["..."] }
+                    "suggestion": "...", "priority": "high", "quote": "..." } ] }
   ],
-  "critical_issues": [ /* highest-priority issues, surfaced first */ ],
-  "strengths": ["..."],
-  "next_steps": ["..."],
-  "meta": { "evaluator": "mock", "schema_version": "1.0", "duration_ms": 42 }
+  "critical_issues": [ /* surfaced first */ ],
+  "strengths": [ "..." ],
+  "next_steps": [ "..." ],
+  "sop": { "checked": true, "compliant": false, "checks": [ /* ... */ ] },
+  "meta": { "evaluator": "mock", "word_count": 324, "duration_ms": 41 }
 }
 ```
 
-Every issue carries **Problem · Explanation · Impact · Suggestion · Priority ·
-Example · Quote**, per the editorial spec — feedback is always actionable and
-references the actual content.
+Every issue carries problem, explanation, impact, suggestion, priority and the quoted
+passage, so feedback is always actionable and points at real text.
 
 ---
 
-## 5. Rubrics & Editorial DNA
+## 5. Scoring dimensions
 
-Rubrics are **data**, not code (`app/rubrics/`). A rubric is a content type plus a
-list of weighted `Dimension`s (Research, Evidence, Narrative, Neutrality, Structure,
-Writing, Grammar, Headline, Citations, …). Editorial DNA (evidence before opinion,
-no sensationalism, provide historical/strategic/economic context, India-first but
-evidence-based, no AI clichés) is encoded as reviewer heuristics now and as prompt
-guidance for Claude in P2.
+| Dimension | Weight | Rule share | What the rules measure |
+|---|---|---|---|
+| Research Accuracy | 0.30 | 0.75 | Unsourced statistics, attribution, source tier |
+| Original Insight | 0.20 | 0.45 | Inference, comparison, counter-argument, filler |
+| Narrative Structure | 0.15 | 0.70 | Paragraphing, sentence-length variance, transitions |
+| Depth | 0.10 | 0.70 | Causal chains, mechanism vocabulary, specificity |
+| Credibility & Sourcing | 0.10 | 0.95 | Source tiers, citation density |
+| Writing Quality | 0.10 | 0.95 | House style, AI clichés, repetition |
+| Headline | 0.05 | 0.85 | Clickbait, headline/body alignment |
+
+Weights vary by content type (breaking news leans on accuracy; opinion on insight) and
+are tunable per type from the admin panel. An override is validated, normalised to sum
+to 1.0, and reported back with both the requested and effective values so an admin is
+never shown a number they did not enter.
 
 ---
 
-## 6. Roadmap — all phases implemented
+## 6. The production loop
 
-| Phase | Deliverable | Status |
-|-------|-------------|--------|
-| **P1** | Extension ↔ backend ↔ mock pipeline ↔ scorecard sidebar | ✅ |
-| **P2** | **Any AI provider** behind `Evaluator` — Claude, GPT, Gemini, Grok + Ollama/OpenRouter/Groq/Together/DeepSeek/Mistral (open source); provider **registry**; `/api/providers`; per-request override; **multi-agent** pipeline (`JALEBI_PIPELINE=multi`) | ✅ |
-| **P3** | Async SQLAlchemy (SQLite→Postgres); Google OAuth + dev-login + JWT + roles; evaluation & document history; user profiles | ✅ |
-| **P4** | RAG knowledge base — hashing embedder (zero-dep) or OpenAI; in-memory store or Qdrant; retrieval folded into the prompt; ingest/search API | ✅ |
-| **P5** | Multi-agent pipeline; founder/editor **dashboard** + **admin panel** (users, rubric weights, prompts, knowledge, audit log, AI usage); analytics | ✅ |
-| **P6** | Research-integrity analyzers (claim extraction, unattributed/high-risk claims, citation gaps, bias/absolutes/hedges); Slack/Teams notifications; Sentry hook | ✅ |
+`app/workflow/states.py` models the editorial process as an explicit state machine:
 
-Everything degrades to a **zero-infra local default** — SQLite, in-memory vector
-store, mock provider, hashing embeddings — so `uvicorn app.main:app` runs on an empty
-`.env`. Production swaps each piece via env (Postgres, Qdrant, provider keys, OpenAI
-embeddings) with no code change.
+```
+assigned → drafting → submitted → under_review → revising → approved → published
+                  ↘ reassigned / scrapped (from any live state, reason required)
+```
 
-### API surface
+Transitions are validated, so a piece cannot jump from assigned to approved. Editor-only
+transitions are enforced server-side. Each phase carries the SOP's own deadline windows,
+and `phase_started_at` resets on every transition that opens a new one, so "overdue"
+always refers to the current phase.
 
-| Method | Path | Role | Purpose |
-|--------|------|------|---------|
-| GET | `/api/health`, `/api/providers`, `/api/content-types` | — | status / catalogues |
-| POST | `/api/evaluate` | optional | run pipeline; `provider` override; persists history |
-| POST | `/api/classify` | optional | auto-detect content type |
-| POST | `/api/check` | optional | real-time grammar/style (inline extension) |
-| POST | `/api/integrity` | optional | claim/citation/bias analysis (P6) |
-| POST | `/api/auth/dev-login`; GET `/api/auth/google/*`, `/api/auth/me` | — / user | auth |
-| GET | `/api/evaluations`, `/api/evaluations/{id}` | user | history (own; all for editor+) |
-| GET/POST/DELETE | `/api/knowledge*` | editor/admin | knowledge base |
-| GET | `/api/analytics/overview` | editor+ | dashboard metrics |
-| — | `/api/admin/*` | admin | users, rubric overrides, prompts, logs, usage |
-| GET | `/dashboard` | API-auth'd | server-rendered founder/editor + admin UI |
+Approval is never blocked. The SOP gives the editor final say, so failing checks surface
+as `blocking_reasons` and an editor who signs off anyway records a written reason, which
+is audited and sent to the team lead.
 
-### Deployment
+---
 
-- **Local:** `uvicorn app.main:app --reload` (SQLite + mock).
-- **Container:** `apps/backend/Dockerfile`; `docker compose up` → backend + Postgres + Qdrant.
-- **PaaS:** image respects `$PORT` (Railway/Render); set DB URL, JWT secret, admin emails, keys.
-- **CI:** `.github/workflows/ci.yml` runs backend `pytest` + extension type-check/build.
-- **Migrations:** Alembic (`migrations/`, async env). Dev auto-creates tables
-  (`JALEBI_AUTO_CREATE=true`); prod sets it false and runs `alembic upgrade head`
-  (the Dockerfile does this before serving).
+## 7. Testing
 
-## 6c. Inline, web-wide grammar layer
+- **Backend:** 349 tests. Deterministic because the mock provider is rules-only, so the
+  suite needs no API key, costs nothing and never flakes on a network call. No test
+  makes a live provider call — a deliberate trade of end-to-end coverage for
+  reproducibility.
+- **Extension:** 60 tests under jsdom, covering the DOM-driven modules (inline checker,
+  editable-field detection, review canvas, panels) as well as pure helpers.
+- **The standard applied throughout:** a fix ships with a test that **fails against the
+  pre-fix code**. Several bugs in this codebase were found by writing that test first.
 
-Beyond the Google-Docs sidebar (whole-document editorial evaluation), Jalebi has a
-**real-time inline checker** that works in any editable field on any site:
+---
 
-- **Extension:** a second content script (`entrypoints/inline.content.ts`, matches
-  `<all_urls>`, excludes the Docs canvas) attaches to a focused `<textarea>`,
-  `<input>`, or `contenteditable`, debounces typing, and draws underlines with a
-  one-click-fix popover. Rects are computed via a mirror technique (inputs) or native
-  `Range` (contenteditable); requests proxy through the background worker to bypass
-  page CSP.
-- **Engine:** `POST /api/check`. The checker is **LanguageTool** (mature open-source,
-  thousands of rules) when `JALEBI_LANGUAGETOOL_URL` is set (docker-compose ships the
-  service), else a dependency-free heuristic checker (typos, repeats, spacing,
-  capitalization, a/an). This is the answer to "correction precision depends on the
-  LLM" — a specialized engine, not the LLM.
+## 8. Security posture
 
-**Honest boundary:** Google Docs' canvas rendering blocks inline underlines *inside
-the doc* without Google's Annotated-Canvas whitelist, so Docs stays sidebar-only; the
-inline layer covers the rest of the web (Gmail, LinkedIn, X, CMS, Notion, …).
+API keys live only on the backend. JWT with explicit `HS256`, role-based access
+(writer / editor / admin) checked against the database row rather than the token claim,
+so a demotion takes effect immediately. Audit logging on privileged actions. All queries
+use bound parameters.
 
-## 7. Testing & quality
+In production the app **refuses to start** on unsafe configuration — the published
+default signing key, an open dev-login, or wildcard CORS. See
+[CONFIGURATION.md](CONFIGURATION.md#the-production-gate).
 
-- Backend: `pytest` over the pipeline and API — deterministic because the mock
-  seeds off a content hash (same text → same score; improved text → changed score).
-- Extension: component tests (Vitest) added in P2; doc-extractor kept pure and unit-testable.
-- Types are the contract; both ends are fully typed.
-
-## 8. Security posture (built up over phases)
-
-API keys live only on the backend (never in the extension). P3 adds JWT + Google
-OAuth, role-based access (writer / editor / admin), audit logging, input validation,
-and rate limiting. Transport is HTTPS in every hosted environment.
+Known limitation: the inline grammar checker runs on all sites. It never reads password
+fields, payment details or one-time codes, but broad host access remains the strongest
+argument against publishing the extension as-is.

@@ -75,10 +75,28 @@ export function Icon({
   );
 }
 
-// Dimension key → icon.
+/** Dimension key → icon. Covers the live scoring dimensions plus the legacy
+ *  rubric vocabulary, so evaluations stored before the scoring engine changed
+ *  still render an icon rather than a gap. */
 export const DIM_ICON: Record<string, IconName> = {
-  research: 'chart', evidence: 'chart', accuracy: 'target', narrative: 'book',
-  neutrality: 'scale', context: 'globe', structure: 'grid', writing: 'pencil',
-  readability: 'eye', grammar: 'pencil', headline: 'heading', citations: 'link',
-  formatting: 'grid', seo: 'search', engagement: 'sparkle',
+  // Live dimensions (app/scoring/constitution.py).
+  accuracy: 'target',
+  insight: 'sparkle',
+  narrative: 'book',
+  depth: 'search',
+  sourcing: 'link',
+  writing: 'pencil',
+  headline: 'heading',
+  // Legacy rubric keys, retained for historical evaluations.
+  research: 'chart',
+  evidence: 'chart',
+  neutrality: 'scale',
+  context: 'globe',
+  structure: 'grid',
+  readability: 'eye',
+  grammar: 'pencil',
+  citations: 'link',
+  formatting: 'ruler',
+  seo: 'search',
+  engagement: 'sparkle',
 };

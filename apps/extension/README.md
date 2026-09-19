@@ -1,68 +1,84 @@
-# Jalebi Extension
+# Jalebi extension
 
-Chrome extension (MV3, WXT + React + Tailwind) that evaluates the open Google Doc
-against TIES editorial standards and renders a scorecard in the side panel.
-
-## Prerequisites
-
-- Node.js 18+ and npm
-- The [backend](../backend) running (default `http://127.0.0.1:8000`)
+Chrome MV3 extension: a side panel for editorial review inside Google Docs, plus an
+inline grammar layer for the rest of the web. Built with WXT, React and Tailwind.
 
 ## Develop
 
 ```bash
 npm install
-npm run dev            # builds to .output/chrome-mv3 and launches a dev browser
+npm run dev            # HMR, loads an unpacked build
+npm run compile        # tsc --noEmit
+npm test               # 60 tests (vitest + jsdom)
+npm run build          # .output/chrome-mv3
+npm run zip            # store package
 ```
 
-If you prefer to load it manually: `npm run dev` (or `npm run build`), then in Chrome
-go to `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and
-select `apps/extension/.output/chrome-mv3`.
+Load `.output/chrome-mv3` at `chrome://extensions` with Developer mode on. Point the
+panel at your backend in Settings; the default is `http://127.0.0.1:8000`.
 
-## Use
+## What it does
 
-1. Start the backend (`uvicorn app.main:app --reload` in `apps/backend`).
-2. Open any Google Doc.
-3. Click the **Jalebi** floating button (bottom-right) or the toolbar icon — the side
-   panel opens.
-4. Pick the **content type** and (when more than one is configured) the **AI model**,
-   then click **Evaluate with Jalebi**.
+**Side panel** (Google Docs). Extracts the document, runs an evaluation, and shows the
+score, SOP compliance, production-loop state and a review workspace where fixes can be
+applied to a local copy and copied back.
 
-The **AI model** picker is populated from `GET /api/providers` — it lists only the
-providers the backend has keys for (Claude, GPT, Gemini, Grok, or open-source models via
-Ollama/OpenRouter/Groq/Together/DeepSeek/Mistral). Keys never leave the backend. The
-scorecard footer shows which model scored the piece and how many knowledge-base passages
-were used.
-
-The side panel's ⚙ settings let you point at a different backend URL and test the
-connection. The default backend is `http://127.0.0.1:8000`; the backend sends permissive
-CORS so the panel can reach it. For a hosted backend, set its URL in settings.
-
-## How text extraction works
-
-The content script runs on `docs.google.com` and fetches
-`…/document/d/{docId}/export?format=txt` with the user's session — clean plain text,
-no DOM scraping, no OAuth. See [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md) §3.1.
+**Inline checker** (all sites). Attaches to a focused editable field, debounces typing,
+and underlines issues with a one-click fix. Password fields, payment details and
+one-time codes are never read — see `lib/inline/editable.ts`.
 
 ## Layout
 
 ```
 entrypoints/
-  background.ts          opens the side panel
-  content.ts             doc extractor + floating action button
-  sidepanel/
-    index.html · main.tsx · App.tsx · style.css   (React side panel)
-components/               Header · Settings · Scorecard · IssueCard · ui primitives
+  sidepanel/App.tsx     panel shell: phases, doc loading, evaluation
+  content.ts            Google Docs detection + text extraction
+  inline.content.ts     inline checker host (all sites)
+  background.ts         service worker: backend proxy, side-panel behaviour
+
+components/
+  Scorecard.tsx         score, summary, strengths, next steps, breakdown
+  ReviewCanvas.tsx      mirrored document with inline highlights and fixes
+  SopPanel.tsx          SOP compliance checklist
+  WorkflowPanel.tsx     production loop: stage, SLA, role-appropriate actions
+  Settings.tsx          backend URL, sign-in, inline toggle
+  icons.tsx             the icon set — inline SVG, currentColor, no emoji
+  vitals.tsx            score hero, gradient bars, section pills
+  controls.tsx          buttons, toggles, pills, meters
+
 lib/
-  api.ts                 backend client (configurable URL)
-  doc.ts                 docId parsing + export-endpoint fetch (pure)
-  types.ts               mirror of the backend evaluation schema
-  score.ts               score → colour bands
-  useTheme.ts            light/dark/system
-wxt.config.ts            manifest + Tailwind (Vite plugin)
+  api.ts                backend client; normalises FastAPI error shapes
+  doc.ts / docs.ts      Docs extraction and the Docs/Drive API layer
+  types.ts              mirrors the backend Pydantic schemas
+  inline/               checker, editable-field abstraction, overlay, rects
 ```
 
-## Notes
+## Design notes
 
-- Branded toolbar icons are added later; dev builds use Chrome's default icon.
-- Component tests (Vitest) land in P2 alongside schema codegen for `lib/types.ts`.
+**No emoji.** The interface uses a stroke-based inline SVG icon set. Coloured emoji
+read as decoration, and this is a tool for deciding whether something is fit to
+publish. Line icons also inherit `currentColor`, so they adapt to light/dark and to
+each section's accent.
+
+**Two type stacks.** A transitional serif for prose — summaries, strengths, issue
+explanations — and a UI sans for controls and labels. Setting everything in a serif
+looks better in a screenshot and is worse to use: at 11–12px serifs blur and dense
+labels lose legibility. Both are system fonts, so nothing is downloaded.
+
+**Colour carries meaning.** `scoreColour()` maps a score to the Constitution's bands,
+and every ring, bar and wash uses it. Green always means ready.
+
+**Text edits are applied by index, never by pattern.** `String.replace(quote, fix)`
+rewrites the *first* match rather than the highlighted one, and interprets `$&`/`$1`
+in the replacement — a model returning `$1,000` corrupted the output. See
+`replaceMark()` in `ReviewCanvas.tsx`.
+
+**Tests run under jsdom.** The DOM-driven modules carry the highest user-facing risk —
+the inline checker writes into the user's live text — so they are tested rather than
+only the pure helpers.
+
+## Known limitation
+
+The inline checker declares `<all_urls>` host access. Field-level filters mean it never
+reads credentials or payment data, but broad host access is the main obstacle to a
+public Chrome Web Store listing. See [../../PRODUCT.md](../../PRODUCT.md) §2.1.

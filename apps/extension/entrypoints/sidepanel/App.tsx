@@ -12,7 +12,6 @@ import {
   SegmentedToggle,
 } from '@/components/controls';
 import { ReviewCanvas } from '@/components/ReviewCanvas';
-import { Emoji } from '@/components/emoji';
 import { Icon } from '@/components/icons';
 import { useTheme } from '@/lib/useTheme';
 import {
@@ -214,12 +213,12 @@ export default function App() {
                 {phase === 'done' ? (
                   <>
                     Here's how <b>{doc?.title || 'this doc'}</b> measures up{' '}
-                    <Emoji name="target" size={20} />
+                    <Icon name="target" size={20} />
                   </>
                 ) : (
                   <>
                     Let's get this doc <b>publication-ready</b>{' '}
-                    <Emoji name="sparkle" size={20} />
+                    <Icon name="sparkle" size={20} />
                   </>
                 )}
               </Headline>
@@ -363,7 +362,7 @@ export default function App() {
                       {marking ? (
                         <Spinner className="h-3.5 w-3.5 border-white border-t-transparent" />
                       ) : (
-                        <Emoji name="pencil" size={14} />
+                        <Icon name="pencil" size={14} />
                       )}
                       {marking ? 'Working…' : 'Highlight & comment in doc'}
                     </button>

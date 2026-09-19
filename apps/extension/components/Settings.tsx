@@ -9,7 +9,6 @@ import {
   type AuthUser,
 } from '@/lib/api';
 import { Eyebrow, ToggleSwitch, SettingRow, Legend, CircleButton } from './controls';
-import { Emoji } from './emoji';
 import { Icon } from './icons';
 
 // How overall scores map to the publishing decision (Constitution §A bands).
@@ -94,7 +93,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
       {/* Header */}
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Emoji name="model" size={16} />
+          <Icon name="model" size={16} />
           <h2 className="text-sm font-bold">Settings</h2>
         </div>
         <CircleButton variant="light" size={28} onClick={onClose} title="Close settings">

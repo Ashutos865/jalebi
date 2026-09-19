@@ -1,5 +1,11 @@
 # Jalebi — Bug Report & Analysis
 
+> **Status: historical.** This report describes the codebase as it was on
+> 17 September 2026. All six blockers and every High finding have since been fixed,
+> together with most Medium items; see [PLAN.md](PLAN.md) for the hardening work.
+> Kept as the record of what was found and why it mattered — not as a description of
+> the current system.
+
 **Date:** 17 September 2026
 **Scope:** full review of the `jalebi` repository (commit `c53b231`)
 **Size reviewed:** ~6,700 lines of Python (backend), ~3,800 lines of TypeScript (Chrome extension)

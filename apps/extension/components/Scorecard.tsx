@@ -2,8 +2,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { ScoreHero, GradientBars, SectionPill, Chip, PILL } from './vitals';
 import { SegmentedToggle, ImpactMeter, StatusPill, type PillTone } from './controls';
-import { Emoji, DIM_EMOJI } from './emoji';
-import { Icon } from './icons';
+import { Icon, DIM_ICON } from './icons';
 import { SopPanel } from './SopPanel';
 
 // Publication readiness → status-pill tone.
@@ -181,7 +180,7 @@ function DimensionList({ categories }: { categories: CategoryScore[] }) {
         const band = scoreBand(c.score);
         return (
           <li key={c.key} className="flex items-center gap-2.5">
-            <Emoji name={DIM_EMOJI[c.key] ?? 'chart'} size={16} />
+            <Icon name={DIM_ICON[c.key] ?? "chart"} size={16} />
             <span className="w-24 shrink-0 truncate text-[12px] font-medium">{c.name}</span>
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-black/[0.06] dark:bg-white/10">
               <div

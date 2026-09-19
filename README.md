@@ -1,86 +1,128 @@
 # Jalebi
 
-**AI-powered editorial quality-assurance system for TIES.**
+**An editorial quality-assurance system.**
 
-Jalebi is not a grammar checker. It is a Managing-Editor-in-software: it evaluates an
-article, script, or report against TIES' editorial standards, explains what is weak and
-why, tells the writer how to fix it, and decides whether the piece is ready to publish.
+Jalebi is not a grammar checker. It reads a draft and answers one question: *is this
+good enough to publish?* It scores the piece against an editorial standard, explains
+what is weak and why, surfaces the claims that need checking, and tracks the article
+from assignment to sign-off.
 
 It ships as a Chrome extension that works inside Google Docs, backed by a FastAPI
-platform that runs a multi-stage **editorial review pipeline** over any AI provider you
-choose.
+service.
 
 ```
-Google Doc ─▶ Extension (WXT/React) ─▶ FastAPI ─▶ Editorial pipeline ─▶ Scorecard sidebar
-             extract via docs export     provider registry      classify → review → judge
-                                         + RAG knowledge base    (mock / Claude / GPT / …)
+Google Doc ─▶ Extension (WXT/React) ─▶ FastAPI ─▶ Scoring engine ─▶ Sidebar
+             text via the export API      rules (72%) + AI judgment (28%)
 ```
 
-## What's built (P1–P6)
+## What it does
 
-- **Extension** — detects Google Docs, extracts text, picks content type + AI model,
-  evaluates, renders a liquid-glass scorecard (priority issues, strengths, next steps,
-  per-dimension breakdown), light/dark.
-- **Any AI provider** — mock (default, no key), **Claude, GPT, Gemini, Grok**, and
-  open-source via **Ollama / OpenRouter / Groq / Together / DeepSeek / Mistral**. Keys
-  stay on the backend; writers pick from configured providers in the sidebar.
-- **Editorial pipeline** — data-driven rubrics per content type, TIES' Editorial DNA,
-  single-call or **multi-agent** (per-dimension) modes.
-- **Accounts & history** — Google OAuth + dev login, JWT, roles (writer/editor/admin),
-  evaluation & document history, user profiles. Async SQLAlchemy (SQLite → Postgres).
-- **RAG knowledge base** — handbook, approved/rejected articles, founder notes embedded
-  and retrieved into the prompt. Zero-dep hashing embedder → OpenAI; in-memory → Qdrant.
-- **Dashboard + admin** — founder/editor analytics and an admin panel (users, rubric
-  weights, prompts, knowledge, audit log, AI usage), served at `/dashboard` (no build step).
-- **Research integrity (P6)** — claim extraction, unattributed/high-risk-claim and
-  citation-gap detection, bias/absolutes/hedges — `POST /api/integrity`.
-- **Ops** — Dockerfile, docker-compose (Postgres + Qdrant), GitHub Actions CI,
-  Slack/Teams notifications, Sentry hook.
+**Scores against an editorial standard.** Seven weighted dimensions — accuracy,
+insight, narrative, depth, sourcing, writing, headline — with hard caps for things no
+score should survive (a fabricated quotation caps the result at 0). Weights are
+tunable per content type from the admin panel, and the change takes effect on the next
+evaluation.
 
-**It runs with zero infrastructure** — SQLite, in-memory vectors, mock provider — and
-scales up entirely through environment variables. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+**Works with no API key.** About 72% of the score comes from a deterministic rules
+engine: source tiers, attribution, statistics without sources, reasoning structure,
+house style. The same text always scores the same. An AI provider adds judgment on top
+of that, but nothing depends on one being configured.
 
-## Repository layout
+**Surfaces claims rather than verifying them.** `POST /api/factcheck` returns every
+checkable claim with the citation nearest it, ranked by how badly it needs review.
+Jalebi does not fetch URLs or decide whether a source supports a claim — that is the
+editor's job, and a tool that pretended otherwise would be trusted and wrong.
 
-```
-jalebi/
-├── apps/
-│   ├── backend/      FastAPI · providers · pipeline · RAG · auth · dashboard · analyzers
-│   └── extension/    WXT · React · TypeScript · Tailwind · MV3 side panel
-├── docs/ARCHITECTURE.md
-├── docker-compose.yml
-└── .github/workflows/ci.yml
-```
+**Runs the production loop.** Assignment, drafting, review, revision, sign-off, with
+the deadline windows the newsroom's own SOP defines. Editors approve from the sidebar;
+approving a piece that fails its checks records a written reason.
+
+**Checks grammar inline, anywhere.** A second content script attaches to editable
+fields on any site and underlines issues via LanguageTool, or a dependency-free
+heuristic checker when no LanguageTool server is configured. Password fields, payment
+details and one-time codes are never read.
+
+**Records integrity results, never guesses them.** AI-content and plagiarism
+percentages come from the editor's own tooling. Jalebi stores them, applies the
+thresholds and gates sign-off. It does not run AI detection — see
+[PRODUCT.md](PRODUCT.md) for the evidence behind that decision.
 
 ## Quick start
 
-Backend (runs on an empty `.env`):
+The backend runs on an empty `.env` — SQLite, in-memory vectors, no API key:
 
 ```bash
 cd apps/backend
-python3 -m venv .venv && source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 #  API docs → /docs   ·   dashboard → /dashboard   ·   health → /api/health
 ```
 
-Point it at a real model, e.g. Claude:
+Point it at a model when you want AI judgment as well as rules:
 
 ```bash
 export JALEBI_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Extension (needs Node 18+):
+The extension (Node 18+):
 
 ```bash
-cd apps/extension && npm install && npm run dev
+cd apps/extension
+npm install
+npm run build
 ```
 
-Full stack (Postgres + Qdrant):
+Then load `apps/extension/.output/chrome-mv3` at `chrome://extensions` with Developer
+mode on. Open a Google Doc and click the Jalebi icon.
+
+Full stack with Postgres, Qdrant and LanguageTool:
 
 ```bash
 docker compose up --build
 ```
 
-Per-app details in each `README.md`.
+## Layout
+
+```
+jalebi/
+├── apps/
+│   ├── backend/          FastAPI · scoring · workflow · RAG · auth · dashboard
+│   │   ├── app/scoring/    rules, reasoning, constitution, SOP compliance
+│   │   ├── app/analysis/   fact-check worklist, integrity, editorial red lines
+│   │   ├── app/workflow/   production-loop state machine
+│   │   └── app/text/       shared text utilities
+│   └── extension/        WXT · React · TypeScript · MV3 side panel
+└── docs/
+    ├── ARCHITECTURE.md     how it works and why
+    ├── CONFIGURATION.md    every environment variable
+    └── DEPLOYMENT.md       running it in production
+```
+
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System shape, scoring model, design decisions |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Every environment variable and its effect |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production setup, including the startup safety gate |
+| [PRODUCT.md](PRODUCT.md) | Market analysis and what a public version would require |
+| [PLAN.md](PLAN.md) | The hardening work, with measured findings |
+| [SOP_IMPLEMENTATION.md](SOP_IMPLEMENTATION.md) | How the TIES Content SOP maps onto the system |
+
+## Tests
+
+```bash
+cd apps/backend  && pytest -q          # 349 tests
+cd apps/extension && npm test          # 60 tests
+```
+
+No API key is required for either: the test suite pins `JALEBI_PROVIDER=mock`, so
+results are deterministic and cost nothing. No test makes a live provider call.
+
+## Status
+
+Built for TIES and configured to its editorial standard. The scoring mechanisms are
+general but the constants are not — house style, word windows, deadline windows and
+source lists are TIES-specific, so another newsroom would need the configuration work
+described in [PRODUCT.md](PRODUCT.md) §2.3 before using it.

@@ -1,102 +1,156 @@
-# Jalebi — Production Deployment (VPS)
+# Deployment
 
-A hardened deploy for ~100 internal users. Auth model: **email + shared-secret login**
-with an email allow-list (no Google OAuth required).
+Running Jalebi somewhere other than a laptop. Every setting referenced here is
+described in [CONFIGURATION.md](CONFIGURATION.md).
 
-## 0. What you provide
+---
 
-- A VPS (2 vCPU / 2 GB RAM is plenty) with Docker, or Python 3.12 + Postgres.
-- A domain pointing at the VPS (for HTTPS).
-- One AI provider key (e.g. Anthropic).
-- Two secrets you invent: `JALEBI_JWT_SECRET` (32+ random chars) and
-  `JALEBI_SIGNUP_SECRET` (the shared secret you hand to your users).
+## Before anything else: the production gate
 
-## 1. Configure
+With `JALEBI_ENV=production`, Jalebi **refuses to start** until the development
+defaults are corrected. This is intentional — the defaults are convenient and unsafe,
+and the first three below combine into "a stranger can create an admin account".
 
-```bash
-cd apps/backend
-cp .env.production.example .env
-# edit .env — fill every REQUIRED value
-```
+Start-up fails if:
 
-Generate strong secrets:
+| Condition | Why |
+|---|---|
+| `JALEBI_JWT_SECRET` is the default, or under 32 chars | The default value is published in this repository, so anyone can forge an admin token |
+| `JALEBI_ALLOW_DEV_LOGIN=true` with no `JALEBI_SIGNUP_SECRET` | Passwordless account creation, open to the internet |
+| Dev-login on with no email/domain allow-list | Any address may sign in |
+| `JALEBI_CORS_ORIGINS` contains `*` | This API authenticates by header, which the credentials flag does not cover, so any site could drive it with a leaked token |
 
-```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(48))"   # run twice
-```
+The error message names each problem and its fix. Do not work around it by setting
+`JALEBI_ENV=development` on a public host.
 
-Key auth settings (this is the hardening that closes the open-admin backdoor):
+---
 
-| Var | Purpose |
-|-----|---------|
-| `JALEBI_SIGNUP_SECRET` | Required to log in. Share with approved users only. |
-| `JALEBI_ALLOWED_DOMAINS` / `JALEBI_ALLOWED_EMAILS` | Only these can sign in. |
-| `JALEBI_ADMIN_EMAILS` | Auto-promoted to admin. |
-| `JALEBI_REQUIRE_AUTH=true` | `/evaluate` requires a token (protects your AI spend). |
-| `JALEBI_CORS_ORIGINS` | Lock to your dashboard + published extension id. |
-
-## 2a. Run with Docker (recommended)
+## 1. Minimum viable production
 
 ```bash
-# from repo root
-docker compose up --build -d
-```
-Brings up backend (runs `alembic upgrade head` on start) + Postgres + Qdrant. Pass your
-secrets via a root `.env` or the shell environment (see `docker-compose.yml`).
+# Secrets you generate
+JALEBI_JWT_SECRET=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
 
-## 2b. Run without Docker
+# Identity
+JALEBI_ENV=production
+JALEBI_ADMIN_EMAILS=editor@example.org
+JALEBI_ALLOWED_DOMAINS=example.org
+JALEBI_ALLOW_DEV_LOGIN=false          # or set JALEBI_SIGNUP_SECRET
+JALEBI_REQUIRE_AUTH=true
+
+# Network
+JALEBI_CORS_ORIGINS=https://jalebi.example.org,chrome-extension://<your-extension-id>
+JALEBI_TRUSTED_PROXIES=127.0.0.1      # only if behind a reverse proxy
+
+# Data
+JALEBI_DATABASE_URL=postgresql+asyncpg://jalebi:...@db:5432/jalebi
+JALEBI_AUTO_CREATE=false              # Alembic owns the schema
+```
+
+Then:
 
 ```bash
-cd apps/backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt asyncpg qdrant-client
-alembic upgrade head                       # apply migrations (AUTO_CREATE=false)
-uvicorn app.main:app --host 127.0.0.1 --port 8000
+alembic upgrade head
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-Run it as a service (systemd) and keep it bound to `127.0.0.1` — Caddy handles the public port.
-
-## 3. HTTPS (Caddy)
-
-Point your domain's DNS at the VPS, edit the domain in `../Caddyfile`, then:
+## 2. Docker
 
 ```bash
-caddy run --config ./Caddyfile     # auto-provisions + renews TLS
+docker compose up --build
 ```
 
-Now `https://jalebi.example.com/dashboard` and `/api/*` are live over TLS.
+Brings up the backend, Postgres, Qdrant and LanguageTool. The backend image runs
+`alembic upgrade head` before serving, and respects `$PORT` so it works unchanged on
+Railway or Render.
 
-## 4. Scaling / workers
+## 3. Behind a reverse proxy
 
-- A **single uvicorn process** comfortably serves ~100 users. To use more workers:
-  `gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 2`.
-- **If you run more than one worker, use Postgres + Qdrant** (set `QDRANT_URL`). The
-  in-memory vector store and admin rubric-weight overrides are per-process; with Qdrant
-  the KB is shared, and rubric overrides reload on each worker's startup (so an admin
-  weight change propagates on the next restart/rolling deploy — fine for infrequent
-  config changes). For instant propagation across workers, keep a single worker.
+`Caddyfile` in the repository root is a working example with automatic HTTPS.
 
-## 5. First-run checklist
+**Set `JALEBI_TRUSTED_PROXIES` to your proxy's address.** `X-Forwarded-For` is
+attacker-controlled otherwise, and the rate limiter — the only abuse control on the
+expensive evaluation path — keys on it. Left empty, the header is ignored entirely,
+which is correct for a directly-exposed server but will make every request appear to
+come from the proxy when there is one.
 
-- [ ] `.env` has all REQUIRED values; `JALEBI_AUTO_CREATE=false`.
-- [ ] `alembic upgrade head` ran (Docker does this automatically).
-- [ ] `curl https://your-domain/api/health/ready` returns `{"status":"ready"}`.
-- [ ] Log into `/dashboard` with an admin email + the shared secret → you're admin.
-- [ ] Seed the knowledge base (Knowledge tab) if using RAG.
-- [ ] `JALEBI_REQUIRE_AUTH=true`, `JALEBI_CORS_ORIGINS` locked, dev secret set.
+## 4. Multiple workers
 
-## 6. Extension distribution
+```bash
+gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 4
+```
 
-- Build: `cd apps/extension && npm install && npm run build` → `.output/chrome-mv3`.
-- Zip it (`npm run zip`) and publish **privately/unlisted** on the Chrome Web Store, or
-  distribute via your org's managed-Chrome policy for the ~100 users.
-- Users open the side panel → ⚙ Settings → set the **Backend URL** to your domain and
-  **Sign in** with their email + the shared secret. The token is stored and sent on
-  every request.
+**Set `QDRANT_URL` when running more than one worker.** The default vector store is
+in-memory and per-process, so workers would hold different indexes and RAG results
+would vary by which one answered.
 
-## 7. Backups & monitoring
+The rate limiter is also per-process, so the effective limit is
+`JALEBI_RATE_LIMIT × workers`. Use a shared store if you need a strict global limit.
 
-- **Backups:** `pg_dump` the Postgres DB on a schedule; snapshot the Qdrant volume.
-- **Monitoring:** set `SENTRY_DSN` for error tracking. Request logs (method/path/status/
-  latency/IP + `X-Request-ID`) go to stdout — ship them to your log aggregator.
-- **Health probes:** liveness `GET /api/health`, readiness `GET /api/health/ready`.
+## 5. AI provider
+
+Optional. Jalebi scores without one — roughly 72% of the score is deterministic — and
+adding a provider adds judgment on top.
+
+```bash
+JALEBI_PROVIDER=anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+JALEBI_ALLOWED_PROVIDERS=anthropic     # constrains /api/evaluate and /api/rewrite
+```
+
+The request budget defaults (60s per call, 180s per evaluation) are deliberate: without
+them a stalled provider holds a request and its database session for roughly twenty
+minutes. Raise them only with a reason.
+
+## 6. The extension
+
+```bash
+cd apps/extension
+npm ci
+npm run build          # .output/chrome-mv3
+npm run zip            # for the Chrome Web Store
+```
+
+Point it at the deployed backend in the sidebar's settings panel. The URL must be
+`https` outside localhost — field contents travel over it.
+
+Note the extension declares broad host access for the inline grammar checker. That is
+the main obstacle to a public Web Store listing; see [PRODUCT.md](../PRODUCT.md) §2.1.
+
+## 7. Monitoring
+
+```bash
+SENTRY_DSN=https://...
+JALEBI_SLACK_WEBHOOK=https://hooks.slack.com/services/...
+```
+
+`GET /api/health` is liveness; `GET /api/health/ready` also checks the database and
+returns 503 when it is unreachable. The readiness probe deliberately returns no error
+detail — database errors routinely embed the connection string, credentials included.
+
+---
+
+## Pre-flight checklist
+
+- [ ] `JALEBI_ENV=production` and the app starts (the gate passes)
+- [ ] `JALEBI_JWT_SECRET` is 32+ random characters, not from this repository
+- [ ] `JALEBI_ALLOW_DEV_LOGIN=false`, or gated by secret **and** allow-list
+- [ ] `JALEBI_CORS_ORIGINS` lists exact origins
+- [ ] `JALEBI_TRUSTED_PROXIES` set if and only if behind a proxy
+- [ ] `JALEBI_AUTO_CREATE=false` and `alembic upgrade head` run
+- [ ] `QDRANT_URL` set if workers > 1
+- [ ] HTTPS terminated, HSTS on
+- [ ] A restore from backup has actually been tested
+
+## Upgrading
+
+```bash
+git pull
+pip install -r requirements.txt
+alembic upgrade head
+```
+
+Migrations are additive and carry `server_default` on every non-nullable column, so they
+apply to tables that already hold data. This was not always true — an earlier migration
+added four `NOT NULL` columns with no default and would have failed on the first
+Postgres deployment with existing rows.

@@ -125,7 +125,10 @@ class Settings:
 
     # --- Pipeline (P5) ---------------------------------------------------------
     # single-call LLM vs multi-agent (one reviewer call per dimension group).
-    pipeline_mode: str = os.getenv("JALEBI_PIPELINE", "single")  # single | multi
+    # NOTE: JALEBI_PIPELINE (single|multi) was removed. The multi-agent
+    # evaluator it selected was unreachable dead code and has been deleted;
+    # every provider runs through HybridEvaluator. Setting it now does nothing,
+    # so it is no longer read rather than being silently ignored.
 
     # --- Grammar engine (inline, real-time checking) ---------------------------
     # LanguageTool server URL. Empty → dependency-free heuristic checker.

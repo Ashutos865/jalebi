@@ -2,7 +2,7 @@
 // pastel pill labels, metric chips, ring gauges, gradient dimension bars, and a
 // radial overall-score hero. Icons are device-independent inline SVG (see icons.tsx).
 import type { ReactNode } from 'react';
-import { Emoji, DIM_EMOJI, type EmojiName } from './emoji';
+import { Icon as Emoji, DIM_ICON as DIM_EMOJI, type IconName as EmojiName } from './icons';
 import type { CategoryScore, EvaluationResult } from '@/lib/types';
 
 // Saturated → light vertical gradients for the dimension bars.

@@ -159,6 +159,36 @@ overall determinism materially above 64%.
 - **AI detection** — evidence in `PRODUCT.md` says don't build it.
 - **Google Docs API formatting checks** — high plumbing, low value.
 
+## Outcome
+
+All five days complete.
+
+| | Start | End |
+|---|---|---|
+| Backend tests | 249 | **349** |
+| Extension tests | 56 | **60** |
+| Determinism with no API key | 64% | **72%** |
+| Strong-vs-weak score gap | 5 points | **14 points** |
+| Extension bundle | 326 kB | **307 kB** |
+
+Things found while doing the work that were not in the original plan:
+
+- **Two more broken sentence splitters** (predicted one; found two). Both severed
+  attributions from their claims, so an attributed statement could be analysed as
+  unattributed. Now a single shared module.
+- **`insight` was a constant.** It returned 60.0 for every input, so a fifth of the
+  no-key score carried no information and vacuous filler scored the same as genuine
+  analysis. Replaced with structural reasoning analysis.
+- **The grammar checker corrected correct English** — "a university", "an hour", "a
+  European", "an FBI agent" — because it matched spelling rather than sound. The
+  space-before-punctuation fix also deleted paragraph breaks.
+- **`pass_rate` divided the fetched rows by the full table count**, which would have
+  silently understated the figure once history exceeded the query window.
+- **Fixes were applied by string pattern**, so `String.replace` rewrote the first match
+  rather than the highlighted one and interpreted `$&`/`$1` in model output.
+- **`JALEBI_PIPELINE` was dead config**, read only to be echoed in the health response.
+  Removed rather than documented.
+
 ## Acceptance criteria for the whole pass
 
 1. Backend suite green and larger than 249; extension green and larger than 56.

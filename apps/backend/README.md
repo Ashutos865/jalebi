@@ -1,109 +1,111 @@
-# Jalebi Backend
+# Jalebi backend
 
-FastAPI platform: editorial review pipeline over any AI provider, plus auth, history,
-a RAG knowledge base, a founder/editor dashboard + admin panel, and research-integrity
-analysis. Runs with **zero infrastructure** (SQLite + in-memory vectors + mock provider)
-and scales up via environment variables.
+FastAPI service: scoring engine, editorial workflow, fact-check surfacing, RAG
+knowledge base, auth, and a server-rendered dashboard.
 
-## Run
+## Run it
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env          # optional — defaults already run
 uvicorn app.main:app --reload
 ```
 
-- Swagger: http://127.0.0.1:8000/docs
-- Dashboard + admin: http://127.0.0.1:8000/dashboard
-- Health: http://127.0.0.1:8000/api/health
+Works on an empty `.env`: SQLite, in-memory vectors, no API key. About 72% of the score
+is deterministic, so it produces real results with nothing configured.
 
-## Test
+- API docs — `/docs`
+- Dashboard — `/dashboard`
+- Health — `/api/health`
+
+Optional extras: `pip install openai` for GPT and the OpenAI-compatible providers,
+`google-genai` for Gemini, `asyncpg` for Postgres, `qdrant-client` for a shared vector
+store.
+
+## Tests
 
 ```bash
-source .venv/bin/activate && pytest -q
+pytest -q          # 349 tests, no API key, no network
 ```
 
-## Choosing an AI provider
+`tests/conftest.py` pins `JALEBI_PROVIDER=mock` and an isolated temp database, so the
+suite is deterministic and costs nothing. No test makes a live provider call.
 
-Set `JALEBI_PROVIDER` and the matching key/model (see `.env.example`). Configured
-providers appear in `/api/providers` and in the extension's model picker; keys never
-leave the backend.
-
-| Provider | env |
-|----------|-----|
-| Claude | `JALEBI_PROVIDER=anthropic` `ANTHROPIC_API_KEY=…` (`JALEBI_MODEL=claude-opus-4-8`) |
-| GPT | `JALEBI_PROVIDER=openai` `OPENAI_API_KEY=…` `OPENAI_MODEL=…` |
-| Gemini | `JALEBI_PROVIDER=gemini` `GEMINI_API_KEY=…` `GEMINI_MODEL=…` (`pip install google-genai`) |
-| Grok | `JALEBI_PROVIDER=xai` `XAI_API_KEY=…` `XAI_MODEL=…` |
-| Ollama (local, OSS) | `JALEBI_PROVIDER=ollama` `OLLAMA_MODEL=llama3.1` |
-| OpenRouter/Groq/Together/DeepSeek/Mistral | `JALEBI_PROVIDER=<id>` + that provider's key/model |
-
-GPT and all OpenAI-compatible providers need `pip install openai`. `JALEBI_PIPELINE=multi`
-runs one reviewer per dimension group concurrently instead of a single call.
-
-## Key endpoints
+## API
 
 | Method | Path | Role | Purpose |
-|--------|------|------|---------|
-| GET | `/api/health`, `/api/providers`, `/api/content-types` | — | status / catalogues |
-| POST | `/api/evaluate` | optional | evaluate a document (`provider` override); persists history |
-| POST | `/api/classify` | optional | auto-detect content type from the text |
-| POST | `/api/integrity` | optional | claim / citation / bias analysis |
-| POST | `/api/auth/dev-login` | — | password-less login (gated) |
-| GET | `/api/auth/google/login`, `/callback`, `/api/auth/me` | — / user | Google OAuth + profile |
-| GET | `/api/evaluations`, `/{id}` | user | history (own; all for editor+) |
-| GET/POST/DELETE | `/api/knowledge*` | editor/admin | knowledge base |
-| GET | `/api/analytics/overview` | editor+ | dashboard metrics |
-| `/api/admin/*` | admin | users, rubric weights, prompts, logs, usage |
+|---|---|---|---|
+| GET | `/api/health`, `/api/health/ready` | — | Liveness, readiness |
+| GET | `/api/providers`, `/api/content-types` | — | Catalogues |
+| POST | `/api/evaluate` | optional | Score a document |
+| POST | `/api/classify` | optional | Detect content type |
+| POST | `/api/check` | optional | Real-time grammar (inline checker) |
+| POST | `/api/rewrite` | optional | Sentence rewrite options |
+| POST | `/api/integrity` | optional | Claims, citation gaps, bias |
+| POST | `/api/factcheck` | optional | Ranked fact-check worklist |
+| POST | `/api/nation-first` | optional | Editorial red-line review queue |
+| POST | `/api/auth/dev-login` · GET `/api/auth/google/*`, `/api/auth/me` | — | Auth |
+| GET | `/api/evaluations`, `/api/evaluations/{id}` | user | History (own; all for editor+) |
+| GET/PUT | `/api/documents`, `/api/documents/{id}/…` | editor | Tracker, workflow, integrity |
+| GET | `/api/analytics/overview` | editor+ | Dashboard metrics |
+| GET/POST/DELETE | `/api/knowledge*` | editor/admin | Knowledge base |
+| — | `/api/admin/*` | admin | Users, scoring weights, prompts, audit log, usage |
 
 ## Layout
 
 ```
 app/
-  main.py                 app factory + lifespan (DB init, reindex, override load)
-  config.py               all env-driven settings
-  schemas/evaluation.py   the scorecard contract
-  rubrics/                content-type rubrics + admin weight overrides
+  main.py                 app factory, lifespan, production safety gate
+  config.py               every setting, plus the production gate itself
+  middleware.py           rate limiting, security headers, request logging
+
+  scoring/
+    constitution.py       dimensions, weights, caps, bands, source tiers
+    rules.py              the deterministic engine
+    reasoning.py          insight/depth/narrative from reasoning structure
+    engine.py             blend, caps, readiness, summary
+    ai_prompt.py          system prompt + tolerant response parsing
+    sop_header.py         SOP metadata block parsing
+    sop_compliance.py     word window, structure, references
+
+  analysis/
+    factcheck.py          ranked claim worklist
+    analyzers.py          claims, citation gaps, bias, absolutes
+    nation_first.py       editorial red lines (flags, never a score penalty)
+
+  workflow/
+    states.py             production-loop state machine + SLA windows
+    service.py            transitions, assignment, sign-off
+
   pipeline/
-    prompt.py             Editorial DNA + rubric → system prompt (+ RAG)
-    text_features.py      heuristic document analysis
-    mock_reviewer.py      content-aware mock reviewers
-    aggregate.py          shared scoring/readiness policy
-    orchestrator.py       MockEvaluator
-    llm_evaluator.py      provider-agnostic LLM evaluator (parse/repair/map)
-    multi_agent.py        per-dimension multi-agent evaluator
-  llm/
-    client.py             LLMClient + AnthropicClient
-    openai_client.py      OpenAI-compatible (GPT + all OSS hosts)
-    gemini_client.py      Gemini
-    registry.py           provider catalogue + factory
-  knowledge/              embeddings · vector store · ingest/retrieve (RAG)
-  db/                     async engine + models (users, evals, docs, KB, audit)
-  auth/                   JWT · Google OAuth · roles · deps
-  analysis/analyzers.py   research-integrity analyzers (P6)
-  integrations/notify.py  Slack / Teams
-  services/               history · analytics · audit
-  dashboard/views.py      server-rendered dashboard + admin (no build step)
-  api/routes/             health providers evaluate integrity auth evaluations
-                          knowledge analytics admin
-tests/                    mock, llm-evaluator/registry, full e2e platform
+    hybrid_evaluator.py   the only evaluator: rules + optional AI judgment
+    text_features.py      surface features
+    classifier.py         content-type detection
+    base.py               Evaluator interface
+
+  text/sentences.py       shared sentence splitter (see its docstring)
+  llm/                    provider registry + Anthropic/OpenAI/Gemini clients
+  knowledge/              embeddings, vector store, RAG retrieval, seeding
+  auth/                   JWT, Google OAuth, roles
+  db/                     async SQLAlchemy models and session
+  services/               history, analytics, documents, audit
+  dashboard/views.py      server-rendered admin UI (no build step)
 ```
 
-## Migrations (Alembic)
+## Design notes
 
-Dev auto-creates tables on startup (`JALEBI_AUTO_CREATE=true`, the default). For
-production set `JALEBI_AUTO_CREATE=false` and manage the schema with Alembic:
+**One evaluator.** `HybridEvaluator` serves every provider; `mock` is the same class
+with no client. Earlier `MockEvaluator`/`ClaudeEvaluator`/`MultiAgentEvaluator` classes
+and the `app/rubrics` weighting vocabulary became unreachable and were deleted.
 
-```bash
-alembic upgrade head                          # apply migrations
-alembic revision --autogenerate -m "change"   # after editing app/db/models.py
-```
+**Sentence splitting lives in one place.** `app/text/sentences.py`. It was
+reimplemented four times, and every copy split `12.7%` into `12.` and `7%` and severed
+`Dr. Rao` from its claim — which meant an attributed statement could be analysed as
+unattributed. Do not add a local regex.
 
-The Dockerfile runs `alembic upgrade head` before serving; env is read from
-`JALEBI_DATABASE_URL` (see `migrations/env.py`).
+**Scoring is explainable.** Rules produce quoted issues; the AI layer is constrained to
+judgment it cannot fabricate. A provider timeout degrades to rules-only rather than
+failing the request.
 
-## Deploy
-
-`Dockerfile` (respects `$PORT`; runs migrations), `../../docker-compose.yml`
-(backend + Postgres + Qdrant), CI in `../../.github/workflows/ci.yml`.
+See [../../docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md) for the reasoning behind
+these, and [../../docs/CONFIGURATION.md](../../docs/CONFIGURATION.md) for every setting.

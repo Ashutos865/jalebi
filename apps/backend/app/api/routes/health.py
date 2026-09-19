@@ -21,7 +21,7 @@ async def health() -> dict:
         "app": settings.app_name,
         "environment": settings.environment,
         "provider": settings.provider,
-        "pipeline": settings.pipeline_mode,
+        "evaluator": "hybrid",   # rules + constrained AI judgment
         "rag_enabled": settings.rag_enabled,
         "schema_version": SCHEMA_VERSION,
     }

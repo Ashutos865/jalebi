@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { priorityStyle } from '@/lib/score';
 import { checkText } from '@/lib/api';
 import { StatusPill, type PillTone } from './controls';
-import { Emoji, type EmojiName } from './emoji';
+import { Icon as Emoji, type IconName as EmojiName } from './icons';
 import { Icon } from './icons';
 import type { Issue, Priority } from '@/lib/types';
 import type { GrammarIssue } from '@/lib/inline/types';
