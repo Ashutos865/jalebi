@@ -65,8 +65,18 @@ def test_long_form_still_prefers_flowing_prose():
 # --- length -----------------------------------------------------------------
 
 def test_short_form_gets_no_length_reward():
-    """An 800+ word bonus would push writers past their own 350-word brief."""
-    assert _depth(LONG_PROSE, "analysis") == _depth(SOP_PERFECT, "analysis")
+    """An 800+ word bonus would push writers past their own 350-word brief.
+
+    Asserts the *absence of a length bonus*, not exact equality: depth is now
+    density-based (app/scoring/reasoning.py), so two different texts can differ
+    by a point or two on their reasoning content alone. What must not happen is
+    the long version scoring materially higher for being long.
+    """
+    long_score = _depth(LONG_PROSE, "analysis")
+    short_score = _depth(SOP_PERFECT, "analysis")
+    assert long_score - short_score < 5, (
+        f"short-form appears to reward length: {short_score} -> {long_score}"
+    )
 
 
 def test_long_form_still_rewards_depth_with_length():

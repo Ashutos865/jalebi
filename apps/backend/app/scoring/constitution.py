@@ -28,9 +28,15 @@ class Dimension:
 
 DIMENSIONS: List[Dimension] = [
     Dimension("accuracy", "Research Accuracy", 0.30, 0.75),
-    Dimension("insight", "Original Insight", 0.20, 0.15),
-    Dimension("narrative", "Narrative Structure", 0.15, 0.60),
-    Dimension("depth", "Depth", 0.10, 0.60),
+    # insight/depth/narrative were 0.15/0.60/0.60 when their rules were
+    # placeholders (insight returned a constant). app/scoring/reasoning.py now
+    # measures reasoning structure — inference, causal chains, comparison,
+    # counter-argument, specificity, filler — so the deterministic share is
+    # raised to reflect rules that actually discriminate. The AI layer still
+    # leads on insight, which is the hardest to judge mechanically.
+    Dimension("insight", "Original Insight", 0.20, 0.45),
+    Dimension("narrative", "Narrative Structure", 0.15, 0.70),
+    Dimension("depth", "Depth", 0.10, 0.70),
     Dimension("sourcing", "Credibility & Sourcing", 0.10, 0.95),
     Dimension("writing", "Writing Quality", 0.10, 0.95),
     Dimension("headline", "Headline", 0.05, 0.85),

@@ -52,6 +52,40 @@ Real risk is to a developer machine or CI, not to a user who installs the extens
 
 ---
 
+## 🆕 Revision: making the no-key path genuinely good
+
+Jalebi must be excellent **without an API key** — that is the zero-infrastructure
+promise, it is how every test runs, and it is a real differentiator against tools that
+are useless offline. Measured on the running system:
+
+```
+Overall determinism with NO key: 64% of the score
+  breaking_news 72%   investigative 69%   analysis 60%   opinion 58%
+```
+
+The remaining 36% is not evenly spread — it collapses into three dimensions whose rule
+component is weak or absent:
+
+| Dimension | Weight | alpha (rule share) | Rule behaviour with no key |
+|---|---|---|---|
+| `insight` | 0.20 | **0.15** | **Returns a flat 60.0**, +8 if the text contains one of nine phrases like "surprisingly" |
+| `depth` | 0.10 | 0.60 | Length + mechanism-word counting |
+| `narrative` | 0.15 | 0.60 | Paragraph/transition heuristics |
+
+Measured consequence — a well-sourced analytical piece against vacuous filler:
+
+```
+STRONG  overall=70   insight=60  depth=66  narrative=70
+WEAK    overall=65   insight=60  depth=55  narrative=55
+```
+
+**`insight` scores 60 for both.** The rule rewards *claiming* insight ("surprisingly")
+rather than exhibiting it, so on the no-key path a fifth of the score is a constant. A
+5-point overall gap between excellent and vacuous is not a usable editorial signal.
+
+**Day 3 is therefore re-scoped** to strengthen the deterministic engine, which is worth
+more than the performance work it displaces. The displaced items move to Day 4.
+
 ## The calendar
 
 Five days of focused work, sequenced so each day ends green and shippable.
@@ -79,27 +113,32 @@ Five days of focused work, sequenced so each day ends green and shippable.
 
 **Exit:** a hung provider cannot exhaust the worker pool; no secret can leave in an error.
 
-### Day 3 — Performance & data integrity
+### Day 3 — Make the no-key engine genuinely good
 
 | # | Task | File(s) | Why it matters |
 |---|---|---|---|
-| 3.1 | SQL aggregation for analytics | `services/analytics.py:22` | `SELECT *` pulls every 10–50 kB result blob into Python per dashboard load |
-| 3.2 | Same for the documents tracker | `services/documents.py:34` | Three full-table scans per request |
-| 3.3 | Startup failures logged, not `print`-and-swallow | `main.py:66` | A failed reindex silently yields an empty vector store |
+| 3.1 | Real `insight` rules: evidence→conclusion structure, causal reasoning, specificity, originality vs. restatement | `scoring/rules.py:336` | Currently a constant 60; a fifth of the no-key score carries no information |
+| 3.2 | Strengthen `depth`: mechanism/causal-chain analysis, not word counting | `scoring/rules.py` | Rewards length over reasoning |
+| 3.3 | Strengthen `narrative`: openings, transitions, earned endings | `scoring/rules.py` | Thin heuristics |
 | 3.4 | Grammar false positives (`a/an`, newline-eating) | `grammar/heuristic.py:109` | Verified wrong on "a university", "an hour", "a European", "an FBI"; the space-before-punctuation fix **deletes paragraph breaks** |
+| 3.5 | Raise alphas to match the stronger rules; re-verify determinism | `scoring/constitution.py` | The rule share should rise because the rules got better, never by fiat |
 
-**Exit:** dashboard queries bounded; no user-visible wrong grammar suggestions.
+**Exit:** a clear, defensible score gap between strong and weak writing with no key, and
+overall determinism materially above 64%.
 
-### Day 4 — Frontend & dependencies
+### Day 4 — Performance, data integrity, frontend
 
 | # | Task | File(s) | Why it matters |
 |---|---|---|---|
-| 4.1 | Fix `ReviewCanvas` replace-by-string | `ReviewCanvas.tsx:156` | Replaces the **first** match, not the marked one; `$&`/`$1` in model output corrupts text |
-| 4.2 | Clean up timers on unmount | `ReviewCanvas.tsx:119,173` | setState after unmount |
-| 4.3 | Destroy inline checkers for detached fields | `inline.content.ts` | Unbounded leak on SPAs — one per field ever focused |
-| 4.4 | Upgrade build tooling | `package.json` | 21 advisories; build-time only but CI/dev exposure is real |
+| 4.1 | SQL aggregation for analytics | `services/analytics.py:22` | `SELECT *` pulls every 10–50 kB result blob into Python per dashboard load |
+| 4.2 | Same for the documents tracker | `services/documents.py:34` | Three full-table scans per request |
+| 4.3 | Startup failures logged, not `print`-and-swallow | `main.py:66` | A failed reindex silently yields an empty vector store |
+| 4.4 | Fix `ReviewCanvas` replace-by-string | `ReviewCanvas.tsx:156` | Replaces the **first** match, not the marked one; `$&`/`$1` in model output corrupts text |
+| 4.5 | Clean up timers on unmount | `ReviewCanvas.tsx:119,173` | setState after unmount |
+| 4.6 | Destroy inline checkers for detached fields | `inline.content.ts` | Unbounded leak on SPAs — one per field ever focused |
+| 4.7 | Upgrade build tooling | `package.json` | 21 advisories; build-time only but CI/dev exposure is real |
 
-**Exit:** extension typecheck, 56+ tests, build all green.
+**Exit:** dashboard queries bounded; extension typecheck, tests and build green.
 
 ### Day 5 — Documentation & release readiness
 

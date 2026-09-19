@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from app.scoring import constitution as C
+from app.scoring import reasoning
 from app.text import sentences
 
 
@@ -307,40 +308,38 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
         checks.append(CheckItem("Headline matches body", not (tw and overlap < 0.34),
                                 f"overlap {overlap:.0%}"))
 
-    # ── Narrative Structure (rule part) ───────────────────────────────────
-    nar = 70.0
-    if len(paras) >= 4:
-        nar += 10
+    # ── Insight / Depth / Narrative ───────────────────────────────────────
+    # Measured from the structure of the reasoning (see app/scoring/reasoning.py).
+    # These three used to be near-placeholders — insight in particular returned a
+    # flat 60.0 regardless of content — which meant a fifth of the score carried
+    # no information whenever no model was configured.
+    reasoning_signals = reasoning.analyse(text, paragraphs=len(paras))
+    ins = reasoning_signals.insight
+    dep = reasoning_signals.depth
+    nar = reasoning_signals.narrative
+
+    # Long-form still earns depth for sustained treatment; short-form does not,
+    # since the SOP caps it at ~350 words.
+    if not short_form:
+        if wc > 800:
+            dep += 5
+        if wc > 1500:
+            dep += 5
+
     one_liners = sum(1 for p in paras if len(_WORD.findall(p)) < 14)
     if paras and one_liners / len(paras) > 0.6:
         nar -= 12
-    if wc < 120:
-        nar -= 15
-    nar = _clip(nar)
 
-    # ── Depth (rule part) ─────────────────────────────────────────────────
-    dep = 55.0
-    # Length rewards are long-form only: the SOP caps short-form at ~350 words,
-    # so an 800-word bonus would push writers to violate their own brief.
-    if not short_form:
-        if wc > 800:
-            dep += 10
-        if wc > 1500:
-            dep += 10
-    mech = ["because", "therefore", "however", "incentive", "system", "mechanism",
-            "history", "economics", "psychology", "structural", "underlying",
-            "consequence", "trade-off", "trade off", "cause", "effect", "why"]
-    mech_hits = sum(low.count(m) for m in mech)
-    dep += min(25, mech_hits * 2)
-    dep = _clip(dep)
+    ins, dep, nar = _clip(ins), _clip(dep), _clip(nar)
 
-    # ── Original Insight (rule part — weak; AI dominates) ─────────────────
-    ins = 60.0
-    reveal = ["reveals", "hidden", "counterintuitive", "surprisingly", "what this shows",
-              "the real reason", "few realise", "few realize", "turns out"]
-    if any(r in low for r in reveal):
-        ins += 8
-    ins = _clip(ins)
+    # Surface the reasoning gaps as issues the writer can act on.
+    for note in reasoning_signals.notes[:3]:
+        issues.append(RuleIssue(
+            "insight", "Reasoning gap", note,
+            "Analysis that asserts rather than demonstrates reads as filler.",
+            "Show the evidence and draw the conclusion from it explicitly.",
+            "medium", None,
+        ))
 
     dim_scores = {
         "accuracy": _clip(acc),
