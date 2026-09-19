@@ -17,19 +17,8 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from app.scoring import constitution as C
+from app.text import sentences
 
-# Split on sentence-ending punctuation followed by whitespace + a capital, so
-# decimals ("12.7%"), URLs ("commerce.gov.in") and abbreviations ("Dr. Rao")
-# stay intact. A naive [^.!?]+ split shatters all three.
-# Titles and abbreviations whose trailing period does not end a sentence. Each
-# lookbehind sits *after* the (?<=[.!?]) so it inspects the text before the dot.
-_ABBREV = (
-    r"(?<!\bDr\.)(?<!\bMr\.)(?<!\bMrs\.)(?<!\bMs\.)(?<!\bProf\.)(?<!\bSt\.)"
-    r"(?<!\bJr\.)(?<!\bSr\.)(?<!\bvs\.)(?<!\bNo\.)(?<!\bFig\.)(?<!\bEd\.)"
-)
-_SENT_SPLIT = re.compile(
-    r"(?<=[.!?])" + _ABBREV + r"\s+(?=[\"“(]?[A-Z0-9])|\n+"
-)
 _URL = re.compile(r"https?://\S+")
 _NUMBER = re.compile(
     # "12.7%" / "12 per cent" / "45 crore" / "3 billion". The unit alternatives
@@ -85,7 +74,7 @@ class FactCheckList:
 
 
 def _sentences(text: str) -> List[str]:
-    return [s.strip() for s in _SENT_SPLIT.split(text or "") if s and s.strip()]
+    return sentences.split(text)
 
 
 def _nearest_citation(sentence: str, following: str) -> Optional[str]:
@@ -133,14 +122,14 @@ def _is_factual_claim(sentence: str) -> bool:
 def build(text: str) -> FactCheckList:
     """Build the editor's fact-check worklist for `text`."""
     out = FactCheckList()
-    sentences = _sentences(text)
+    sents = _sentences(text)
 
-    for idx, sentence in enumerate(sentences):
+    for idx, sentence in enumerate(sents):
         if not _is_factual_claim(sentence):
             continue
 
         out.total_claims += 1
-        following = " ".join(sentences[idx + 1: idx + 2])
+        following = " ".join(sents[idx + 1: idx + 2])
         citation = _nearest_citation(sentence, following)
         has_number = bool(_NUMBER.search(sentence))
         has_quote = bool(_QUOTE.search(sentence))

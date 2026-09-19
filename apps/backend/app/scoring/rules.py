@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from app.scoring import constitution as C
+from app.text import sentences
 
 
 # ── result types ─────────────────────────────────────────────────────────────
@@ -51,18 +52,8 @@ class RuleReport:
 
 
 # ── text helpers ─────────────────────────────────────────────────────────────
-# Split on terminal punctuation followed by whitespace and a capital, so
-# decimals ("12.7%"), URLs ("commerce.gov.in") and titles ("Dr. Rao") survive.
-# A naive [^.!?]+ split shattered all three — it turned "12.7%" into "12." and
-# "7%", and the orphaned "7%" then tripped the unsupported_claim hard cap,
-# limiting a fully-sourced article to 50.
-_ABBREV = (
-    r"(?<!\bDr\.)(?<!\bMr\.)(?<!\bMrs\.)(?<!\bMs\.)(?<!\bProf\.)(?<!\bSt\.)"
-    r"(?<!\bJr\.)(?<!\bSr\.)(?<!\bvs\.)(?<!\bNo\.)(?<!\bFig\.)(?<!\bEd\.)"
-)
-_SENT_SPLIT = re.compile(
-    r"(?<=[.!?])" + _ABBREV + r"\s+(?=[\"“(]?[A-Z0-9])|\n+"
-)
+# Sentence splitting lives in app/text/sentences.py — see that module for why a
+# local regex here is a mistake (it was one, twice).
 _WORD = re.compile(r"[A-Za-z']+")
 # "hard" statistics: percentages, currency, large counts, explicit magnitudes.
 _STAT = re.compile(
@@ -74,7 +65,7 @@ _STAT = re.compile(
 
 
 def _sentences(text: str) -> List[str]:
-    return [s.strip() for s in _SENT_SPLIT.split(text or "") if s and s.strip()]
+    return sentences.split(text)
 
 
 def _paragraphs(text: str) -> List[str]:

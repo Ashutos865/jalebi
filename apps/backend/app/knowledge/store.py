@@ -6,6 +6,7 @@ and scale.
 """
 from __future__ import annotations
 
+import hashlib
 import threading
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -80,9 +81,21 @@ class QdrantStore:  # pragma: no cover — requires a running Qdrant
     def clear(self) -> None:
         self._client.delete_collection(self.COLLECTION)
 
+    @staticmethod
+    def _point_id(key: str) -> int:
+        """Stable numeric id for a document key.
+
+        Python's hash() is randomised per process (PYTHONHASHSEED), so the same
+        document produced a different point id on every restart: upsert never
+        updated an existing point, it inserted a duplicate. A digest is stable
+        across processes and restarts.
+        """
+        digest = hashlib.sha1(str(key).encode("utf-8")).hexdigest()
+        return int(digest[:15], 16)
+
     def upsert(self, *, id, vector, text, content_type, payload):
         self._client.upsert(self.COLLECTION, points=[self._qm.PointStruct(
-            id=abs(hash(id)) % (10 ** 18),
+            id=self._point_id(id),
             vector=vector,
             payload={"text": text, "content_type": content_type, **payload, "_key": id},
         )])

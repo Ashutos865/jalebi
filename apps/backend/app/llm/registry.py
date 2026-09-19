@@ -56,7 +56,7 @@ PROVIDERS: Dict[str, ProviderSpec] = {
                          note="Deterministic, content-aware. No API key needed."),
     "anthropic": ProviderSpec("anthropic", "Claude (Anthropic)", "anthropic",
                               key_env="ANTHROPIC_API_KEY", model_env="JALEBI_MODEL",
-                              default_model="claude-opus-4-8"),
+                              default_model="claude-sonnet-5"),
     "openai": ProviderSpec("openai", "GPT (OpenAI)", "openai_compat",
                            key_env="OPENAI_API_KEY", model_env="OPENAI_MODEL"),
     "gemini": ProviderSpec("gemini", "Gemini (Google)", "gemini",

@@ -11,7 +11,8 @@ import re
 from dataclasses import dataclass, field
 from typing import List
 
-_SENT = re.compile(r"(?<=[.!?])\s+")
+from app.text import sentences
+
 _NUM = re.compile(r"\b\d[\d,.]*\s?(%|percent|billion|million|crore|lakh|bn|mn)?\b", re.I)
 _YEAR = re.compile(r"\b(19|20)\d{2}\b")
 _CITED_NEAR = re.compile(
@@ -52,7 +53,9 @@ class IntegrityReport:
 
 
 def _sentences(text: str) -> List[str]:
-    return [s.strip() for s in _SENT.split(text.strip()) if s.strip()]
+    # Shared splitter: the local regex here severed "Dr. Rao said X" into "Dr."
+    # and "Rao said X", so an attributed claim was analysed as unattributed.
+    return sentences.split(text)
 
 
 def _looks_like_claim(s: str) -> bool:

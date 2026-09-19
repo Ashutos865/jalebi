@@ -33,7 +33,10 @@ def _hash_embed(text: str) -> List[float]:
 def _openai_embed(texts: List[str]) -> List[List[float]]:  # pragma: no cover (needs key)
     from openai import OpenAI
 
-    client = OpenAI(api_key=settings.anthropic_api_key or None)  # OPENAI_API_KEY via env
+    # OPENAI_API_KEY, never the Anthropic key: passing settings.anthropic_api_key
+    # here transmitted an sk-ant-... secret to api.openai.com. None lets the SDK
+    # resolve OPENAI_API_KEY from the environment.
+    client = OpenAI(api_key=settings.openai_api_key or None)
     model = "text-embedding-3-small"
     resp = client.embeddings.create(model=model, input=texts)
     return [d.embedding for d in resp.data]

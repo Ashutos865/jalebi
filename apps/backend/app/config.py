@@ -52,7 +52,11 @@ class Settings:
 
     # Model overrides (empty → provider default). Keys/base-urls read in the registry.
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
-    anthropic_model: str = os.getenv("JALEBI_MODEL", "claude-opus-4-8")
+    # Used by the OpenAI embeddings backend (JALEBI_EMBEDDING=openai). Provider
+    # keys for evaluation are resolved in app/llm/registry.py from their own env
+    # vars; this one is here because embeddings read settings directly.
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    anthropic_model: str = os.getenv("JALEBI_MODEL", "claude-sonnet-5")
 
     # --- Auth (P3) -------------------------------------------------------------
     jwt_secret: str = os.getenv("JALEBI_JWT_SECRET", "dev-insecure-change-me")

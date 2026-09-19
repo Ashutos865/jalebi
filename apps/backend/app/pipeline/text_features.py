@@ -11,6 +11,8 @@ import re
 from dataclasses import dataclass, field
 from typing import List
 
+from app.text.sentences import split as sentence_split
+
 # Signals the Editorial DNA cares about.
 AI_CLICHES = [
     "delve", "tapestry", "moreover", "furthermore", "in today's fast-paced",
@@ -59,7 +61,6 @@ class TextFeatures:
     longest_sentence: str = ""
 
 
-_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _WORD = re.compile(r"\b[\w'-]+\b")
 _PASSIVE = re.compile(r"\b(was|were|is|are|been|be|being)\s+\w+(ed|en)\b", re.I)
 
@@ -82,7 +83,7 @@ def analyze(text: str) -> TextFeatures:
     words = _WORD.findall(text)
     f.word_count = len(words)
 
-    sentences = [s for s in _SENT_SPLIT.split(text) if s.strip()]
+    sentences = sentence_split(text)
     f.sentence_count = len(sentences)
     if sentences:
         lengths = [(s, len(_WORD.findall(s))) for s in sentences]
