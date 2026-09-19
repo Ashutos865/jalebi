@@ -10,6 +10,7 @@ import {
 } from '@/lib/api';
 import { Eyebrow, ToggleSwitch, SettingRow, Legend, CircleButton } from './controls';
 import { Emoji } from './emoji';
+import { Icon } from './icons';
 
 // How overall scores map to the publishing decision (Constitution §A bands).
 const BAND_LEGEND = [
@@ -97,7 +98,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
           <h2 className="text-sm font-bold">Settings</h2>
         </div>
         <CircleButton variant="light" size={28} onClick={onClose} title="Close settings">
-          ✕
+          <Icon name="cross" size={14} />
         </CircleButton>
       </div>
 
@@ -163,7 +164,11 @@ export function Settings({ onClose }: { onClose: () => void }) {
             Save & test
           </button>
           {status === 'checking' && <span className="ink-soft text-xs">Checking…</span>}
-          {status === 'ok' && <span className="text-xs text-emerald-500">Connected ✓</span>}
+          {status === 'ok' && (
+            <span className="inline-flex items-center gap-1 text-xs text-emerald-500">
+              <Icon name="check" size={13} /> Connected
+            </span>
+          )}
           {status === 'fail' && (
             <span className="text-xs text-rose-500">Cannot reach backend</span>
           )}

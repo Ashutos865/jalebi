@@ -3,6 +3,7 @@ import { priorityStyle } from '@/lib/score';
 import { checkText } from '@/lib/api';
 import { StatusPill, type PillTone } from './controls';
 import { Emoji, type EmojiName } from './emoji';
+import { Icon } from './icons';
 import type { Issue, Priority } from '@/lib/types';
 import type { GrammarIssue } from '@/lib/inline/types';
 
@@ -84,6 +85,21 @@ function grammarMark(text: string, g: GrammarIssue, i: number): Mark | null {
   };
 }
 
+/** Replace a mark's quote by index, not by pattern.
+ *
+ *  String.replace(quote, expected) had two defects. It rewrote the *first*
+ *  occurrence, which is not necessarily the highlighted one, so applying a fix
+ *  could silently edit an earlier sentence. And the replacement string is
+ *  interpreted: a model returning "$1,000" or "50% off ($&)" produced corrupted
+ *  output, because `$&` and `$1` are substitution patterns. Slicing avoids both.
+ */
+function replaceMark(text: string, m: Mark): string {
+  if (!m.expected) return text;
+  const start = findQuote(text, m.quote);
+  if (start < 0) return text;
+  return text.slice(0, start) + m.expected + text.slice(start + m.quote.length);
+}
+
 interface Seg {
   text: string;
   mark?: Mark;
@@ -117,6 +133,18 @@ export function ReviewCanvas({ text, issues }: { text: string; issues: Issue[] }
   const [copied, setCopied] = useState(false);
   const [hover, setHover] = useState<{ mark: Mark; rect: DOMRect } | null>(null);
   const closeTimer = useRef<number | undefined>(undefined);
+  const copyTimer = useRef<number | undefined>(undefined);
+
+  // Both timers must be cleared on unmount: switching the Report/Review toggle
+  // tears this component down, and a pending callback then calls setState on an
+  // unmounted component.
+  useEffect(
+    () => () => {
+      window.clearTimeout(closeTimer.current);
+      window.clearTimeout(copyTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     let alive = true;
@@ -153,7 +181,7 @@ export function ReviewCanvas({ text, issues }: { text: string; issues: Issue[] }
   const keepOpen = () => window.clearTimeout(closeTimer.current);
 
   const apply = (m: Mark) => {
-    if (m.expected) setWork((w) => w.replace(m.quote, m.expected!));
+    if (m.expected) setWork((w) => replaceMark(w, m));
     setHover(null);
   };
   const dismiss = (id: string) => {
@@ -162,15 +190,26 @@ export function ReviewCanvas({ text, issues }: { text: string; issues: Issue[] }
   };
   const applyAll = () =>
     setWork((w) => {
+      // Apply from the end backwards so each replacement cannot shift the
+      // offsets of the ones still to come.
+      const located = marks
+        .filter((m) => m.expected)
+        .map((m) => ({ m, start: findQuote(w, m.quote) }))
+        .filter((x) => x.start >= 0)
+        .sort((a, b) => b.start - a.start);
+
       let out = w;
-      for (const m of marks) if (m.expected && out.includes(m.quote)) out = out.replace(m.quote, m.expected);
+      for (const { m, start } of located) {
+        out = out.slice(0, start) + m.expected + out.slice(start + m.quote.length);
+      }
       return out;
     });
   const dismissAll = () => setDismissed((s) => new Set([...s, ...marks.map((m) => m.id)]));
   const copyAll = () => {
     navigator.clipboard?.writeText(work).catch(() => {});
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    window.clearTimeout(copyTimer.current);
+    copyTimer.current = window.setTimeout(() => setCopied(false), 1500);
   };
 
   return (
@@ -188,7 +227,13 @@ export function ReviewCanvas({ text, issues }: { text: string; issues: Issue[] }
           onClick={copyAll}
           className="rounded-full bg-gradient-to-br from-jalebi-500 to-jalebi-600 px-3 py-1.5 text-xs font-bold text-white shadow transition hover:brightness-105"
         >
-          {copied ? '✓ Copied' : 'Copy corrected text'}
+          {copied ? (
+            <span className="inline-flex items-center gap-1.5">
+              <Icon name="check" size={14} /> Copied
+            </span>
+          ) : (
+            'Copy corrected text'
+          )}
         </button>
       </div>
 
@@ -360,12 +405,12 @@ function BettermentPopover({
               }}
             >
               <div className="ink-soft mb-1 mt-2.5 text-[10px] font-bold uppercase tracking-wide">Why</div>
-              <p className="ink-soft text-[12px] leading-relaxed">{mark.detail}</p>
+              <p className="prose ink-soft text-[12.5px]">{mark.detail}</p>
             </div>
           </>
         ) : (
           // No auto-fix (e.g. needs a source) — show the guidance directly.
-          <p className="text-[12px] leading-relaxed">{mark.detail}</p>
+          <p className="prose text-[12.5px]">{mark.detail}</p>
         )}
       </div>
 

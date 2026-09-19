@@ -6,13 +6,14 @@
 // prose and still be missing its Instagram handle.
 
 import { SectionPill, PILL } from './vitals';
+import { Icon } from './icons';
 import type { SopCheckItem, SopComplianceReport } from '@/lib/types';
 
 const TONE = { bg: '#E0F2FE', fg: '#2E90FA', emoji: 'steps' as const };
 
 function CheckRow({ check }: { check: SopCheckItem }) {
   const advisory = check.severity === 'advisory';
-  const mark = check.passed ? '✓' : advisory ? '!' : '✕';
+  const icon = check.passed ? 'check' : advisory ? 'warn' : 'cross';
   const colour = check.passed
     ? 'text-[#17B26A]'
     : advisory
@@ -21,12 +22,11 @@ function CheckRow({ check }: { check: SopCheckItem }) {
 
   return (
     <li className="flex gap-2 py-1">
-      <span
-        aria-hidden
-        className={`mt-[1px] w-3 shrink-0 text-center text-[13px] font-bold ${colour}`}
-      >
-        {mark}
-      </span>
+      <Icon
+        name={icon}
+        size={14}
+        className={`mt-0.5 shrink-0 ${colour}`}
+      />
       <span className="min-w-0">
         <span
           className={`text-[13px] ${check.passed ? 'opacity-70' : 'font-semibold'}`}

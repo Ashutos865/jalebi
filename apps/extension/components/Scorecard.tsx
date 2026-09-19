@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { ScoreHero, GradientBars, SectionPill, Chip, PILL } from './vitals';
 import { SegmentedToggle, ImpactMeter, StatusPill, type PillTone } from './controls';
 import { Emoji, DIM_EMOJI } from './emoji';
+import { Icon } from './icons';
 import { SopPanel } from './SopPanel';
 
 // Publication readiness → status-pill tone.
@@ -31,7 +32,7 @@ export function Scorecard({ result }: { result: EvaluationResult }) {
       {/* Summary with metric chips */}
       <section className="card p-4">
         <SectionPill label="Summary" tone={PILL.summary} />
-        <p className="mt-3 text-sm leading-relaxed">{result.summary}</p>
+        <p className="prose mt-3 text-[14px]">{result.summary}</p>
         <div className="mt-3 flex flex-wrap gap-1.5">
           <Chip icon="words">{result.meta.word_count ?? 0} words</Chip>
           {result.meta.evaluator && (
@@ -50,9 +51,13 @@ export function Scorecard({ result }: { result: EvaluationResult }) {
           <SectionPill label="Strengths" tone={PILL.strengths} />
           <ul className="mt-3 space-y-1.5">
             {result.strengths.map((s, i) => (
-              <li key={i} className="flex gap-2 text-sm">
-                <span className="text-emerald-500">✓</span>
-                <span>{s}</span>
+              <li key={i} className="flex gap-2 text-[13.5px]">
+                <Icon
+                  name="check"
+                  size={15}
+                  className="mt-0.75 shrink-0 text-emerald-500"
+                />
+                <span className="prose">{s}</span>
               </li>
             ))}
           </ul>
@@ -65,9 +70,11 @@ export function Scorecard({ result }: { result: EvaluationResult }) {
           <SectionPill label="Next steps" tone={PILL.steps} />
           <ol className="mt-3 space-y-1.5">
             {result.next_steps.map((s, i) => (
-              <li key={i} className="flex gap-2 text-sm">
-                <span className="font-bold text-saffron-600">{i + 1}.</span>
-                <span>{s}</span>
+              <li key={i} className="flex gap-2 text-[13.5px]">
+                <span className="tnum shrink-0 font-semibold text-saffron-600">
+                  {i + 1}.
+                </span>
+                <span className="prose">{s}</span>
               </li>
             ))}
           </ol>

@@ -98,10 +98,23 @@ export function RingGauge({
   );
 }
 
+/** Score → colour, on the Constitution's own bands: >=85 ready, >=75 minor
+ *  revision, >=60 major revision, below that not ready. One scale everywhere,
+ *  so a colour always means the same thing. */
+export function scoreColour(score: number): string {
+  if (score >= 85) return '#17B26A';
+  if (score >= 75) return '#2E90FA';
+  if (score >= 60) return '#E8820C';
+  return '#F04438';
+}
+
 // ── radial overall-score hero ────────────────────────────────────────────────
 export function ScoreHero({ result }: { result: EvaluationResult }) {
   const top = [...result.categories].sort((a, b) => b.weight - a.weight).slice(0, 4);
-  const ringColor = ['#2E90FA', '#F04438', '#17B26A', '#7A5AF8'];
+  // Ring colour reflects each dimension's own score, so the reader sees where
+  // the piece is weak at a glance rather than decoding an arbitrary palette.
+  const ringColor = top.map((c) => scoreColour(c.score));
+  const heroTint = scoreColour(result.overall_score);
   const pos = [
     'left-1/2 top-0 -translate-x-1/2',
     'right-0 top-1/2 -translate-y-1/2',
@@ -110,17 +123,20 @@ export function ScoreHero({ result }: { result: EvaluationResult }) {
   ];
   return (
     <div className="relative mx-auto h-[240px] w-[240px]">
-      <div className="absolute inset-[26%] rounded-full opacity-50" style={{
-        filter: 'blur(24px)',
-        background:
-          'conic-gradient(from 0deg,#FDB022,#F04438,#EE46BC,#9E77ED,#2E90FA,#17B26A,#FDB022)',
-      }} />
+      {/* A single wash keyed to the score, not a rainbow: the colour should
+          carry the verdict, not decorate the panel. */}
+      <div
+        className="absolute inset-[26%] rounded-full opacity-25"
+        style={{ filter: 'blur(28px)', background: heroTint }}
+      />
       <div className="absolute inset-0 grid place-items-center">
         <div className="text-center">
-          <div className="text-5xl font-extrabold leading-none tabular-nums">
+          <div className="display tnum text-[56px] leading-none">
             {result.overall_score}
           </div>
-          <div className="ink-soft mt-0.5 text-xs">/ 100</div>
+          <div className="ink-soft mt-1 text-[11px] uppercase tracking-[0.14em]">
+            out of 100
+          </div>
         </div>
       </div>
       {top.map((c, i) => (

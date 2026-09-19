@@ -5,7 +5,8 @@ export type IconName =
   | 'summary' | 'priority' | 'strengths' | 'steps' | 'breakdown' | 'detail'
   | 'chart' | 'target' | 'pencil' | 'grid' | 'book' | 'scale' | 'link'
   | 'globe' | 'eye' | 'heading' | 'search' | 'sparkle'
-  | 'words' | 'model' | 'provider' | 'kb' | 'up' | 'down';
+  | 'words' | 'model' | 'provider' | 'kb' | 'up' | 'down'
+  | 'ruler' | 'write' | 'check' | 'cross' | 'warn' | 'clock' | 'user' | 'shield';
 
 // 24×24, stroke-based, currentColor.
 const PATHS: Record<IconName, JSX.Element> = {
@@ -33,6 +34,14 @@ const PATHS: Record<IconName, JSX.Element> = {
   kb: <><path d="M6 4h11a1 1 0 0 1 1 1v15H7a1 1 0 0 1-1-1V4ZM6 16h12" /></>,
   up: <><path d="M12 19V5M6 11l6-6 6 6" /></>,
   down: <><path d="M12 5v14M6 13l6 6 6-6" /></>,
+  ruler: <><path d="M3 15 15 3l6 6L9 21Z" /><path d="M7 11l2 2M10 8l2 2M13 5l2 2" /></>,
+  write: <><path d="M4 20h16" /><path d="M6 16l1-3.5L15 4l3 3-8.5 8.5L6 16Z" /></>,
+  check: <><path d="M20 6 9 17l-5-5" /></>,
+  cross: <><path d="M18 6 6 18M6 6l12 12" /></>,
+  warn: <><path d="M12 3 2 20h20L12 3Z" /><path d="M12 10v4M12 17h.01" /></>,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+  user: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>,
+  shield: <><path d="M12 3l8 3v6c0 4.5-3.2 8.3-8 9-4.8-.7-8-4.5-8-9V6l8-3Z" /></>,
 };
 
 export function Icon({

@@ -78,12 +78,65 @@ body,
   height: 100%;
 }
 
+/* Typography.
+ *
+ * Jalebi is an editorial tool, so it reads like one: a transitional serif for
+ * anything the user reads as prose — scores, verdicts, summaries, issue text —
+ * and a restrained UI sans for controls, labels and numeric chrome.
+ *
+ * The split is deliberate. Setting the whole interface in a serif looks
+ * handsome in a screenshot and is genuinely worse to use: at 11-12px, serifs
+ * blur on non-retina displays, and dense control labels lose legibility. Prose
+ * carries the serif; anything you click or scan stays sans.
+ *
+ * Both stacks are system fonts. No webfont is loaded, so the panel renders
+ * instantly, works offline, and ships nothing extra in the bundle. */
+:root {
+  --font-serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Charter,
+    Georgia, 'Times New Roman', Times, serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--font-ui);
   color: rgb(var(--ink));
   background: rgb(var(--page));
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Prose: everything the user reads rather than operates. */
+.prose,
+.serif {
+  font-family: var(--font-serif);
+  /* Serifs carry more visual weight per line, so give them room. */
+  line-height: 1.55;
+  letter-spacing: 0.002em;
+}
+
+/* Editorial headings — the document title, section names, the verdict. */
+.display {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.2;
+}
+
+/* Numerals that should align in a column (scores, percentages, word counts). */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* A quoted passage from the writer's own document. */
+.quote {
+  font-family: var(--font-serif);
+  font-style: italic;
+  line-height: 1.5;
 }
 
 /* Reusable glass panel (used for the sticky header). */

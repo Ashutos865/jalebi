@@ -13,6 +13,7 @@ import {
 } from '@/components/controls';
 import { ReviewCanvas } from '@/components/ReviewCanvas';
 import { Emoji } from '@/components/emoji';
+import { Icon } from '@/components/icons';
 import { useTheme } from '@/lib/useTheme';
 import {
   fetchContentTypes,
@@ -261,7 +262,13 @@ export default function App() {
                 disabled={!doc?.text || detecting || phase === 'evaluating'}
                 className="text-[11px] font-semibold text-jalebi-600 transition hover:text-jalebi-500 disabled:opacity-40"
               >
-                {detecting ? 'Detecting…' : '✨ Auto-detect'}
+                {detecting ? (
+                  'Detecting…'
+                ) : (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Icon name="sparkle" size={13} /> Auto-detect
+                  </span>
+                )}
               </button>
             </div>
             <select
@@ -417,8 +424,8 @@ function Evaluating() {
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="card flex flex-col items-center gap-3 p-8 text-center">
-      <span className="text-2xl">⚠️</span>
-      <p className="text-sm ink-soft">{message}</p>
+      <Icon name="warn" size={28} className="text-[#E8820C]" />
+      <p className="prose ink-soft text-[13.5px]">{message}</p>
       <button
         onClick={onRetry}
         className="rounded-lg bg-jalebi-500 px-4 py-1.5 text-sm font-semibold text-white transition hover:bg-jalebi-600"
