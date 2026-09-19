@@ -42,12 +42,56 @@ export default defineContentScript({
 
     document.addEventListener('focusin', onFocusIn, true);
 
-    // Live toggle from Settings.
-    chrome.storage.onChanged.addListener((changes, area) => {
+    // A focused field can leave the DOM without ever blurring: an SPA route
+    // change, a modal closing, a Gmail compose window being sent. Nothing then
+    // called destroy(), so the checker kept its window scroll/resize listeners,
+    // its document-level pointer listener, its storage listener and three
+    // orphaned body children — one full leak per field the user ever focused,
+    // each still repositioning on every scroll. On a long-lived SPA that
+    // accumulates for the whole session.
+    // The callback is deliberately trivial — a busy SPA fires thousands of
+    // mutations a second, so it exits immediately when nothing is attached, and
+    // otherwise does one isConnected check (a cheap flag read, not a tree walk).
+    // The observer is only armed while a field is attached.
+    let pendingCheck = false;
+    const observer = new MutationObserver(() => {
+      if (!currentEl || pendingCheck) return;
+      // Coalesce a burst of mutations into a single check next frame.
+      pendingCheck = true;
+      requestAnimationFrame(() => {
+        pendingCheck = false;
+        if (currentEl && !currentEl.isConnected) detach();
+      });
+    });
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+
+    // Live toggle from Settings. Kept so it can be removed on teardown.
+    const onStorageChanged = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      area: string,
+    ) => {
       if (area === 'local' && INLINE_FLAG in changes) {
         enabled = changes[INLINE_FLAG].newValue !== false;
         if (!enabled) detach();
       }
-    });
+    };
+    chrome.storage.onChanged.addListener(onStorageChanged);
+
+    // Tear everything down when the page goes away (including bfcache), so a
+    // navigation does not leave listeners attached to a dead document.
+    const teardown = () => {
+      observer.disconnect();
+      document.removeEventListener('focusin', onFocusIn, true);
+      try {
+        chrome.storage.onChanged.removeListener(onStorageChanged);
+      } catch {
+        /* extension context already gone */
+      }
+      detach();
+    };
+    window.addEventListener('pagehide', teardown, { once: true });
   },
 });

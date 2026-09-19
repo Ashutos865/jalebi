@@ -57,17 +57,57 @@ export function fetchMe(): Promise<AuthUser> {
   return request<AuthUser>('/api/auth/me');
 }
 
+/** Default request budget. An evaluation runs a full scoring pass and may call a
+ *  model, so it needs headroom; everything else should answer quickly. Without a
+ *  timeout a hung backend left the panel on "Evaluating…" indefinitely, with no
+ *  error and no way to cancel. */
+const DEFAULT_TIMEOUT_MS = 20_000;
+const EVALUATE_TIMEOUT_MS = 180_000; // matches the backend's own ceiling
+
+const HEALTH_TIMEOUT_MS = 5_000; // "Save & test" should fail fast, not hang
+
+function timeoutFor(path: string): number {
+  if (path.startsWith('/api/evaluate')) return EVALUATE_TIMEOUT_MS;
+  if (path.startsWith('/api/health')) return HEALTH_TIMEOUT_MS;
+  return DEFAULT_TIMEOUT_MS;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const base = await getBackendUrl();
   const token = await getToken();
-  const res = await fetch(`${base}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers || {}),
-    },
-  });
+
+  // Abort on our own schedule. A caller-supplied signal still wins: if it fires
+  // first the request aborts, and either way the timer is cleared.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutFor(path));
+  init?.signal?.addEventListener('abort', () => controller.abort(), { once: true });
+
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers || {}),
+      },
+    });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      throw new Error(
+        init?.signal?.aborted
+          ? 'Request cancelled.'
+          : 'The backend did not respond in time. Check it is running and reachable.',
+      );
+    }
+    throw new Error(
+      'Could not reach the backend. Check the URL in Settings and that it is running.',
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+
   if (!res.ok) {
     let detail = `Request failed (${res.status})`;
     try {
