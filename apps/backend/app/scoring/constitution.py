@@ -293,6 +293,66 @@ SOURCE_TIERS: Dict[int, List[str]] = {
     6: ["twitter", "x.com", "facebook", "instagram", "tiktok", "telegram", "whatsapp"],
 }
 
+def _boundary_pattern(terms: tuple) -> "re.Pattern[str]":
+    """Compile a word-boundary matcher for a list of terms.
+
+    Plain `term in text` has produced a false positive in this codebase four
+    separate times — "corruption" contained "pti", "hospital" contained "pti",
+    "warehouse" contained "war", "unsaid" contained "said". Boundaries are only
+    applied where the term starts or ends with a word character, so multi-word
+    phrases and terms with trailing spaces ("per ") still behave.
+    """
+    parts = []
+    for term in terms:
+        stripped = term.strip()
+        if not stripped:
+            continue
+
+        lead = r"\b" if stripped[:1].isalnum() else ""
+        if not stripped[-1:].isalnum():
+            # Ends in punctuation or a space ("(", "per "): match it literally.
+            parts.append(lead + re.escape(stripped))
+            continue
+
+        # Allow ordinary inflections, so moving from substring to boundary
+        # matching does not start missing plurals: the point is to stop
+        # "warehouse" matching "war", not to lose "airbases".
+        stem = re.escape(stripped)
+        forms = [stem + r"(?:s|es|ed|ing)?"]
+        if stripped[-1].lower() == "e":
+            # A trailing "e" is dropped before -ing: strike -> striking.
+            forms.append(re.escape(stripped[:-1]) + r"ing")
+        parts.append(lead + "(?:" + "|".join(forms) + r")\b")
+
+    return re.compile("|".join(parts), re.IGNORECASE)
+
+
+@lru_cache(maxsize=8)
+def _terms_pattern(key: str) -> "re.Pattern[str]":
+    return _boundary_pattern(tuple(_TERM_LISTS[key]))
+
+
+def matches_any(text: str, list_name: str) -> bool:
+    """True if `text` contains any term from the named list, as a whole word."""
+    return bool(_terms_pattern(list_name).search(text or ""))
+
+
+def count_matches(text: str, list_name: str) -> int:
+    """How many whole-word occurrences of the named list appear in `text`."""
+    return len(_terms_pattern(list_name).findall(text or ""))
+
+
+def found_terms(text: str, list_name: str) -> List[str]:
+    """The distinct terms from the named list present in `text`."""
+    seen, out = set(), []
+    for m in _terms_pattern(list_name).finditer(text or ""):
+        low = m.group(0).lower()
+        if low not in seen:
+            seen.add(low)
+            out.append(low)
+    return out
+
+
 @lru_cache(maxsize=1)
 def _tier_patterns() -> Dict[int, "re.Pattern[str]"]:
     """Word-boundary matchers per tier.
@@ -378,3 +438,14 @@ OPINION_AS_FACT_MARKERS = [
     "the best", "the worst", "the greatest", "everyone should", "no one should",
     "is a disaster", "is a triumph", "proves that", "there is no doubt",
 ]
+
+# Named lists for matches_any/count_matches/found_terms above. Going through the
+# registry gets word-boundary matching; `term in text` does not, and that has
+# been wrong four times.
+_TERM_LISTS: Dict[str, List[str]] = {
+    "attribution": ATTRIBUTION_MARKERS,
+    "bias": BIAS_PHRASES,
+    "high_scrutiny": HIGH_SCRUTINY_TERMS,
+    "ai_cliches": AI_CLICHES,
+    "opinion_as_fact": OPINION_AS_FACT_MARKERS,
+}

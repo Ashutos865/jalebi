@@ -72,6 +72,17 @@ def _sentences(text: str) -> List[str]:
 # Institution words that are both tier-1 source keywords and the kind of body an
 # article accuses. Stripped before judging whether an allegation is sourced, so
 # the subject of the claim cannot pass as evidence for it.
+# Words that frame a statement as an allegation rather than a report. Inflections
+# are matched explicitly: "allegedly" is the most common form of all and a bare
+# \balleged\b does not reach it.
+_ALLEGATION_WORD = re.compile(
+    r"\b(?:alleged|allegedly|allegation|allegations|"
+    r"accus(?:e|es|ed|ation|ations)|"
+    r"reported(?:ly)?|purported(?:ly)?|"
+    r"claim(?:s|ed|ing)?)\b",
+    re.IGNORECASE,
+)
+
 _ACCUSED_ENTITY = re.compile(
     r"\b(?:ministry|government|court|parliament|regulator|authority|commission|"
     r"department|agency|bureau|board|council)\b",
@@ -97,7 +108,7 @@ def _has_attribution(sentence_low: str, *, exclude_subject: bool = False) -> boo
     exists for precisely that sentence.
     """
     text = _ACCUSED_ENTITY.sub(" ", sentence_low) if exclude_subject else sentence_low
-    if any(m in text for m in C.ATTRIBUTION_MARKERS):
+    if C.matches_any(text, "attribution"):
         return True
     # C.best_tier matches on word boundaries. Scanning SOURCE_TIERS by substring
     # here meant "corruption" contained "pti" and therefore counted as a Press
@@ -125,7 +136,8 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
     checks: List[CheckItem] = []
 
     # ── sourcing signals ──────────────────────────────────────────────────
-    attributions = sum(low.count(m) for m in C.ATTRIBUTION_MARKERS)
+    # Whole-word counting: "unsaid" and "misstated" were counted as attributions.
+    attributions = C.count_matches(text, "attribution")
     # Word-boundary matching: plain substrings scored "went to university" as a
     # Tier 3 media source.
     tiers_present = C.tiers_present(text)
@@ -167,8 +179,11 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
     # source keyword. The subject of an allegation is not evidence for it.
     for s in sents:
         sl = s.lower()
-        sensitive = any(t in sl for t in C.HIGH_SCRUTINY_TERMS)
-        allegationy = any(w in sl for w in ("alleged", "allegation", "accused", "reportedly", "claim"))
+        # Whole-word: "warehouse", "forward", "warm" and "warden" all contain
+        # "war", so innocent business copy was tripping the allegation cap and
+        # being limited to 45.
+        sensitive = C.matches_any(s, "high_scrutiny")
+        allegationy = _ALLEGATION_WORD.search(s) is not None
         local_tier = C.best_tier(_ACCUSED_ENTITY.sub(" ", s))
         sourced = _has_attribution(sl, exclude_subject=True)
         if sensitive and allegationy and not sourced and local_tier > 3:

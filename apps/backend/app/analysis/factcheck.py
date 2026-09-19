@@ -115,8 +115,8 @@ def _is_factual_claim(sentence: str) -> bool:
         return True
     if _NAMED_ENTITY.search(sentence):
         return True
-    low = sentence.lower()
-    return any(m in low for m in C.ATTRIBUTION_MARKERS)
+    # Whole-word: "unsaid" and "misstated" contain "said"/"stated".
+    return C.matches_any(sentence, "attribution")
 
 
 def build(text: str) -> FactCheckList:

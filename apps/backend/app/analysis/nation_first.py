@@ -99,8 +99,7 @@ def _is_sourced(sentence: str) -> bool:
     if _URL.search(sentence):
         return True
 
-    low = sentence.lower()
-    if any(marker in low for marker in C.ATTRIBUTION_MARKERS):
+    if C.matches_any(sentence, "attribution"):
         return True
 
     without_subject = NATIONAL_SUBJECTS.sub(" ", sentence)
