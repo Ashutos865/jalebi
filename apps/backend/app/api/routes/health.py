@@ -1,12 +1,15 @@
 """Health checks: liveness (`/health`) + readiness (`/health/ready`)."""
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Response
 from sqlalchemy import text
 
 from app.config import settings
 from app.schemas.evaluation import SCHEMA_VERSION
 
+logger = logging.getLogger("jalebi.health")
 router = APIRouter(tags=["health"])
 
 
@@ -34,9 +37,12 @@ async def ready(response: Response) -> dict:
 
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
-    except Exception as e:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         db_ok = False
-        detail = str(e)[:200]
+        # Logged, not returned: SQLAlchemy connection errors commonly include
+        # the full DSN — with credentials — and this probe is unauthenticated.
+        logger.exception("Readiness probe: database connection failed")
+        detail = "unavailable"
     if not db_ok:
         response.status_code = 503
     return {"status": "ready" if db_ok else "degraded", "database": detail}

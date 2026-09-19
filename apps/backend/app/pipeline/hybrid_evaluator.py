@@ -10,12 +10,15 @@ still rule-anchored, no model call.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import logging
 import re
 from collections import OrderedDict
 from typing import Awaitable, Callable, List, Optional
 
+from app.config import settings
 from app.llm.client import LLMClient
 from app.pipeline.base import Evaluator
 from app.pipeline.text_features import analyze
@@ -26,6 +29,8 @@ from app.schemas.evaluation import (
     SopCheckItem, SopComplianceReport,
 )
 from app.util import elapsed_ms, now
+
+logger = logging.getLogger("jalebi.evaluator")
 
 Retriever = Callable[[str, str], Awaitable[List[str]]]
 
@@ -171,6 +176,28 @@ class HybridEvaluator(Evaluator):
         return report
 
     async def _call_with_repair(self, system: str, user: str) -> AIReport:
+        """Ask the model, once retrying on a malformed reply.
+
+        Bounded overall: per-request timeouts live in the SDK clients, but the
+        repair loop multiplies them, so the whole judgment also runs under a
+        single ceiling. Exceeding it degrades to rules-only — the same graceful
+        path as an unparseable reply — rather than failing the evaluation.
+        """
+        try:
+            return await asyncio.wait_for(
+                self._repair_loop(system, user),
+                timeout=settings.llm_total_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "AI judgment exceeded %ss; falling back to rules-only.",
+                settings.llm_total_timeout_seconds,
+            )
+            return AIReport(
+                summary="(AI judgment timed out; scored on deterministic rules.)"
+            )
+
+    async def _repair_loop(self, system: str, user: str) -> AIReport:
         prompt = user
         last = ""
         for _ in range(self._max_attempts):

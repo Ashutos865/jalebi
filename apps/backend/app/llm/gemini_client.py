@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from app.config import settings
 from app.llm.client import LLMClient, LLMResponse
 
 
@@ -16,7 +17,15 @@ class GeminiClient(LLMClient):
         if self._client is None:
             from google import genai  # lazy
 
-            self._client = genai.Client(api_key=self._api_key)
+            # google-genai takes the request timeout in milliseconds via
+            # http_options. Without it the SDK default applies and a stalled
+            # call can hold a worker and its DB session.
+            self._client = genai.Client(
+                api_key=self._api_key,
+                http_options={
+                    "timeout": int(settings.llm_timeout_seconds * 1000),
+                },
+            )
         return self._client
 
     async def complete(

@@ -1,10 +1,13 @@
 """Production middleware: rate limiting, security headers, request logging."""
 from __future__ import annotations
 
+import ipaddress
 import logging
 import time
 import uuid
 from threading import Lock
+
+from app.config import settings
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -13,12 +16,47 @@ from starlette.responses import JSONResponse, Response
 logger = logging.getLogger("jalebi.request")
 
 
+def _peer_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _is_trusted_proxy(peer: str) -> bool:
+    """Is the direct peer a proxy we configured?
+
+    Empty trusted-proxy list means "no proxy", which is the safe default for a
+    directly-exposed server.
+    """
+    if not settings.trusted_proxies:
+        return False
+    try:
+        addr = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    for entry in settings.trusted_proxies:
+        try:
+            if addr in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def _client_ip(request: Request) -> str:
-    # Trust the first X-Forwarded-For hop when behind a reverse proxy.
+    """The client's address, honouring X-Forwarded-For only behind a proxy.
+
+    X-Forwarded-For is attacker-controlled on a directly-exposed server: anyone
+    can rotate it to mint a fresh rate-limit bucket per request, which defeats
+    the only abuse control on the expensive /api/evaluate path (and used to be a
+    way to blow up the limiter's own memory). It is therefore honoured only when
+    the direct peer is in JALEBI_TRUSTED_PROXIES.
+    """
+    peer = _peer_ip(request)
+    if not _is_trusted_proxy(peer):
+        return peer
     xff = request.headers.get("x-forwarded-for")
     if xff:
         return xff.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    return peer
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):

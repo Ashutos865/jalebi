@@ -46,10 +46,16 @@ class AnthropicClient(LLMClient):
 
             # AsyncAnthropic() also resolves ANTHROPIC_API_KEY / ant-login profiles
             # from the environment; pass an explicit key only when we have one.
+            # timeout/max_retries are explicit: the SDK default is ~600s, long
+            # enough for one stalled call to tie up a worker and its DB session.
+            opts = {
+                "timeout": settings.llm_timeout_seconds,
+                "max_retries": settings.llm_max_retries,
+            }
             self._client = (
-                AsyncAnthropic(api_key=self._api_key)
+                AsyncAnthropic(api_key=self._api_key, **opts)
                 if self._api_key
-                else AsyncAnthropic()
+                else AsyncAnthropic(**opts)
             )
         return self._client
 

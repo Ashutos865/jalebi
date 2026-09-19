@@ -9,6 +9,7 @@ any fact, name, number, or claim; it only rephrases for clarity/tone/conciseness
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import List
 
@@ -16,8 +17,11 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth.deps import maybe_require_auth
 from app.config import settings
+from app.llm import registry
 from app.llm.registry import get_spec, _build_client
 from app.schemas.grammar import RewriteRequest, RewriteResponse
+
+logger = logging.getLogger("jalebi.rewrite")
 
 router = APIRouter(tags=["grammar"])
 
@@ -73,6 +77,13 @@ async def rewrite(body: RewriteRequest, _=Depends(maybe_require_auth)) -> Rewrit
     if len(body.text) > _MAX_CHARS:
         raise HTTPException(413, "Select a shorter passage to rewrite.")
 
+    # Route through the allow-list rather than reading settings.provider
+    # directly: JALEBI_ALLOWED_PROVIDERS is meant to constrain every path that
+    # calls a model, and this one silently ignored it.
+    allowed = registry.allowed_providers()
+    if settings.provider not in allowed:
+        return RewriteResponse(options=[], engine="unavailable")
+
     spec = get_spec(settings.provider)
     if spec.kind == "mock" or not spec.is_configured():
         # No live model available — nothing to fabricate a rewrite from.
@@ -94,7 +105,13 @@ async def rewrite(body: RewriteRequest, _=Depends(maybe_require_auth)) -> Rewrit
         client = _build_client(spec)
         resp = await client.complete(system=_SYSTEM, prompt=prompt, max_tokens=600)
     except Exception as exc:  # provider/network error — surface a clean 502
-        raise HTTPException(502, f"Rewrite provider error: {exc}") from exc
+        # The exception text is logged, never returned: SDK errors routinely
+        # embed the request URL, org id and sometimes a truncated key, and this
+        # endpoint is unauthenticated by default.
+        logger.exception("Rewrite provider call failed (provider=%s)", spec.id)
+        raise HTTPException(
+            502, "The rewrite provider is unavailable. Try again shortly."
+        ) from exc
 
     options = _parse_options(resp.text, body.text)
     return RewriteResponse(options=options, engine=spec.id)

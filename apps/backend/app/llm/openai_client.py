@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from app.config import settings
+
 from app.llm.client import LLMClient, LLMResponse
 
 
@@ -34,7 +36,14 @@ class OpenAICompatibleClient(LLMClient):
         if self._client is None:
             from openai import AsyncOpenAI  # lazy
 
-            self._client = AsyncOpenAI(api_key=self._api_key, base_url=self._base_url)
+            # Explicit timeout/retries — the SDK default is ~600s. See
+            # app/config.py for why that matters here.
+            self._client = AsyncOpenAI(
+                api_key=self._api_key,
+                base_url=self._base_url,
+                timeout=settings.llm_timeout_seconds,
+                max_retries=settings.llm_max_retries,
+            )
         return self._client
 
     async def complete(

@@ -50,6 +50,17 @@ class Settings:
     # Thinking/output effort for providers that support it.
     effort: str = os.getenv("JALEBI_EFFORT", "medium")
 
+    # Per-request timeout and retry budget for every LLM provider. Without these
+    # the SDK defaults apply (~600s), and because the evaluator retries once on a
+    # parse failure a stalled provider could hold a request — and its DB session
+    # — for roughly twenty minutes.
+    llm_timeout_seconds: float = float(os.getenv("JALEBI_LLM_TIMEOUT", "60"))
+    llm_max_retries: int = int(os.getenv("JALEBI_LLM_RETRIES", "2"))
+    # Ceiling on a whole evaluation, including retries and any concurrent fan-out.
+    llm_total_timeout_seconds: float = float(
+        os.getenv("JALEBI_LLM_TOTAL_TIMEOUT", "180")
+    )
+
     # Model overrides (empty → provider default). Keys/base-urls read in the registry.
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     # Used by the OpenAI embeddings backend (JALEBI_EMBEDDING=openai). Provider
@@ -131,6 +142,13 @@ class Settings:
     # --- HTTP ------------------------------------------------------------------
     cors_origins: List[str] = field(
         default_factory=lambda: _csv("JALEBI_CORS_ORIGINS", "*")
+    )
+    # Reverse proxies whose X-Forwarded-For we trust, as IPs or CIDR blocks.
+    # Empty (the default) means the server is directly exposed and the header is
+    # ignored — it is attacker-controlled otherwise. Set this when running behind
+    # Caddy/nginx/a load balancer, e.g. "127.0.0.1,10.0.0.0/8".
+    trusted_proxies: List[str] = field(
+        default_factory=lambda: _csv("JALEBI_TRUSTED_PROXIES", "")
     )
     max_document_chars: int = int(os.getenv("JALEBI_MAX_CHARS", "60000"))
     rate_limit_per_min: int = int(os.getenv("JALEBI_RATE_LIMIT", "60"))
