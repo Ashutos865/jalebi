@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_role
 from app.db.base import get_session
+from app.util import iso
 from app.db.models import (
     ROLE_ADMIN,
     ROLE_RANK,
@@ -36,7 +37,7 @@ async def list_users(_: User = Depends(admin_only),
     return [
         {"id": u.id, "email": u.email, "name": u.name, "role": u.role,
          "department": u.department,
-         "last_login": u.last_login.isoformat() if u.last_login else None}
+         "last_login": iso(u.last_login)}
         for u in rows
     ]
 
@@ -190,7 +191,7 @@ async def logs(limit: int = 100, _: User = Depends(admin_only),
     )).scalars().all()
     return [
         {"id": r.id, "actor": r.actor_email, "action": r.action, "target": r.target,
-         "meta": r.meta, "created_at": r.created_at.isoformat() if r.created_at else None}
+         "meta": r.meta, "created_at": iso(r.created_at)}
         for r in rows
     ]
 

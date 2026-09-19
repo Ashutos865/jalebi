@@ -13,7 +13,7 @@ from typing import List, Optional
 from app.auth.service import has_role
 from app.db.models import ROLE_EDITOR, Document, User
 from app.scoring.constitution import integrity_verdict
-from app.util import utcnow
+from app.util import as_utc, utcnow
 from app.workflow import states as S
 
 
@@ -30,11 +30,9 @@ class SlaStatus:
     at_risk: bool = False                  # past target, inside the limit
 
 
-def _aware(value: Optional[datetime]) -> Optional[datetime]:
-    """SQLite hands back naive datetimes; compare in UTC either way."""
-    if value is None:
-        return None
-    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+# SQLite hands back naive datetimes; compare in UTC either way. Shared with the
+# API serialisers, which had the same problem and no helper.
+_aware = as_utc
 
 
 def sla_for(doc: Document, *, now: Optional[datetime] = None) -> SlaStatus:

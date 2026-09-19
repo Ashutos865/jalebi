@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.service import has_role
 from app.db.models import ROLE_EDITOR, Document, Evaluation, User
 from app.schemas.evaluation import EvaluationRequest, EvaluationResult
-from app.util import utcnow
+from app.util import iso, utcnow
 
 
 def _may_edit_identity(doc: Document, actor: Optional[User]) -> bool:
@@ -96,7 +96,7 @@ def _summary(e: Evaluation) -> dict:
         "provider": e.provider, "model": e.model, "overall_score": e.overall_score,
         "publication_readiness": e.publication_readiness,
         "publication_ready": e.publication_ready, "word_count": e.word_count,
-        "created_at": e.created_at.isoformat() if e.created_at else None,
+        "created_at": iso(e.created_at),
         "owner_id": e.owner_id, "google_doc_id": e.google_doc_id,
     }
 

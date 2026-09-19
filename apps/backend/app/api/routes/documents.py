@@ -16,7 +16,7 @@ from app.integrations.notify import notify
 from app.scoring.constitution import integrity_verdict
 from app.services import documents
 from app.services.audit import log_action
-from app.util import utcnow
+from app.util import iso, utcnow
 from app.workflow import service as workflow
 from app.workflow import states
 
@@ -66,17 +66,17 @@ def _workflow_out(doc: Document) -> dict:
         "editor": doc.editor,
         "word_min": doc.word_min,
         "word_max": doc.word_max,
-        "assigned_at": doc.assigned_at.isoformat() if doc.assigned_at else None,
-        "submitted_at": doc.submitted_at.isoformat() if doc.submitted_at else None,
-        "approved_at": doc.approved_at.isoformat() if doc.approved_at else None,
+        "assigned_at": iso(doc.assigned_at),
+        "submitted_at": iso(doc.submitted_at),
+        "approved_at": iso(doc.approved_at),
         "approved_by": doc.approved_by,
         "override_reason": doc.override_reason,
         "escalation_reason": doc.escalation_reason,
         "blocking_reasons": workflow.blocking_reasons(doc),
         "sla": {
             "phase": sla.phase,
-            "due_at": sla.due_at.isoformat() if sla.due_at else None,
-            "target_at": sla.target_at.isoformat() if sla.target_at else None,
+            "due_at": iso(sla.due_at),
+            "target_at": iso(sla.target_at),
             "hours_remaining": sla.hours_remaining,
             "overdue": sla.overdue,
             "at_risk": sla.at_risk,

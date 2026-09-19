@@ -19,6 +19,7 @@ MAX_EVALUATIONS = 5000
 
 from app.db.models import Document, Evaluation, User
 from app.scoring.constitution import integrity_verdict
+from app.util import iso
 from app.workflow import service as workflow
 
 
@@ -29,7 +30,7 @@ def _sla_out(doc: Optional[Document]) -> dict:
     sla = workflow.sla_for(doc)
     return {
         "phase": sla.phase,
-        "due_at": sla.due_at.isoformat() if sla.due_at else None,
+        "due_at": iso(sla.due_at),
         "hours_remaining": sla.hours_remaining,
         "overdue": sla.overdue,
         "at_risk": sla.at_risk,
@@ -106,9 +107,8 @@ async def list_documents(session: AsyncSession) -> List[dict]:
                 doc.plagiarism_percent if doc else None,
             ),
             "integrity_checked_by": doc.integrity_checked_by if doc else "",
-            "integrity_checked_at": (
-                doc.integrity_checked_at.isoformat()
-                if doc and doc.integrity_checked_at else None
+            "integrity_checked_at": iso(
+                doc.integrity_checked_at if doc else None
             ),
             # Production loop (SOP §3): who owes what, and by when.
             "assigned_to": doc.assigned_to if doc else "",
@@ -122,7 +122,7 @@ async def list_documents(session: AsyncSession) -> List[dict]:
             "trend": trend,
             "latest_readiness": readiness,
             "publication_ready": latest.publication_ready if latest else False,
-            "last_evaluated": latest.created_at.isoformat() if latest and latest.created_at else None,
+            "last_evaluated": iso(latest.created_at if latest else None),
         })
     out.sort(key=lambda d: d["last_evaluated"] or "", reverse=True)
     return out
