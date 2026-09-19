@@ -130,3 +130,55 @@ def test_sequential_transitions_are_unaffected(client, editor):
     r2 = client.put(f"/api/documents/{doc_id}/status",
                     json={"status": "published", "reason": "ok"}, headers=_h(editor))
     assert r2.status_code == 200, r2.text
+
+
+# --- concurrent first login --------------------------------------------------
+
+def test_simultaneous_first_logins_all_succeed(client):
+    """users.email is unique and provisioning was check-then-insert, so two
+    logins arriving together both found no row, both inserted, and the losers
+    got an unhandled IntegrityError -- a 500 on a new writer's first login,
+    from nothing worse than a browser firing two auth requests."""
+    results = []
+    barrier = threading.Barrier(4)
+
+    def go():
+        barrier.wait()
+        results.append(client.post(
+            "/api/auth/dev-login", json={"email": "first-timer@ties.org"}
+        ))
+
+    threads = [threading.Thread(target=go) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert [r.status_code for r in results] == [200] * 4, \
+        [(r.status_code, r.text[:200]) for r in results]
+
+
+def test_a_race_creates_exactly_one_user(client):
+    """The loser must adopt the row the winner committed, not make a second."""
+    import jwt
+
+    results = []
+    barrier = threading.Barrier(4)
+
+    def go():
+        barrier.wait()
+        results.append(client.post(
+            "/api/auth/dev-login", json={"email": "one-row@ties.org"}
+        ))
+
+    threads = [threading.Thread(target=go) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    subs = {
+        jwt.decode(r.json()["access_token"], options={"verify_signature": False})["sub"]
+        for r in results if r.status_code == 200
+    }
+    assert len(subs) == 1, f"the race created more than one user: {subs}"
