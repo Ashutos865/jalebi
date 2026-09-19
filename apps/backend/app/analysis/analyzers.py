@@ -15,9 +15,17 @@ from app.text import sentences
 
 _NUM = re.compile(r"\b\d[\d,.]*\s?(%|percent|billion|million|crore|lakh|bn|mn)?\b", re.I)
 _YEAR = re.compile(r"\b(19|20)\d{2}\b")
+# Word boundaries, and no bare "(".
+#
+# Without \b, "pti" matched inside corruption/adoption/consumption/exemption and
+# "cited" inside "excited", so a document with no sources at all reported a 36%
+# citation density. The bare "(" alternative was worse: adding a parenthetical
+# aside to any sentence — "(a strong result)" — made an unattributed claim look
+# cited and erased a high-severity finding.
 _CITED_NEAR = re.compile(
-    r"(according to|per |as reported|study|data from|source|cited|\(|https?://|said|"
-    r"reuters|pti|ministry|rbi|report)", re.I,
+    r"(?:\baccording to\b|\bper\b|\bas reported\b|\bstud(?:y|ies)\b|"
+    r"\bdata from\b|\bsources?\b|\bcited\b|https?://|\bsaid\b|"
+    r"\breuters\b|\bpti\b|\bministry\b|\brbi\b|\breports?\b)", re.I,
 )
 _CLAIM_VERBS = re.compile(
     r"\b(is|are|was|were|will|has|have|rose|fell|grew|increased|decreased|reached|"

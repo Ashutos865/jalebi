@@ -6,9 +6,29 @@ from typing import List, Optional
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Document, Evaluation, User
+from app.auth.service import has_role
+from app.db.models import ROLE_EDITOR, Document, Evaluation, User
 from app.schemas.evaluation import EvaluationRequest, EvaluationResult
 from app.util import utcnow
+
+
+def _may_edit_identity(doc: Document, actor: Optional[User]) -> bool:
+    """May `actor` rewrite this document's title and URL?
+
+    Anonymous callers may still record an evaluation — that is the zero-friction
+    path the extension relies on — but they may not rename someone else's
+    article or repoint its link.
+    """
+    if actor is None:
+        return False
+    if has_role(actor, ROLE_EDITOR):
+        return True
+    if doc.owner_id is not None and doc.owner_id == actor.id:
+        return True
+    # An unclaimed document may be adopted by the first signed-in writer.
+    if doc.owner_id is None and not doc.assigned_to:
+        return True
+    return bool(doc.assigned_to) and doc.assigned_to == actor.email
 
 
 async def _upsert_document(
@@ -31,9 +51,14 @@ async def _upsert_document(
         )
         session.add(doc)
     else:
-        doc.title = req.title or doc.title
-        if req.doc_url:
-            doc.url = req.doc_url
+        # Only someone connected to the document may rewrite its identity.
+        # /api/evaluate is unauthenticated by default, so anyone who knew a
+        # Google Doc id could repoint the tracker link at an arbitrary URL and
+        # rename an article that was already assigned and mid-workflow.
+        if _may_edit_identity(doc, owner):
+            doc.title = req.title or doc.title
+            if req.doc_url:
+                doc.url = req.doc_url
         doc.updated_at = utcnow()
     await session.flush()
     return doc

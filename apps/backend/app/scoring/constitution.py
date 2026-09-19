@@ -301,6 +301,9 @@ def _boundary_pattern(terms: tuple) -> "re.Pattern[str]":
     "warehouse" contained "war", "unsaid" contained "said". Boundaries are only
     applied where the term starts or ends with a word character, so multi-word
     phrases and terms with trailing spaces ("per ") still behave.
+
+    Terms are plain phrases, not regexes, with one convention: a leading "^"
+    means the phrase only counts when no other word precedes it.
     """
     parts = []
     for term in terms:
@@ -308,7 +311,15 @@ def _boundary_pattern(terms: tuple) -> "re.Pattern[str]":
         if not stripped:
             continue
 
-        lead = r"\b" if stripped[:1].isalnum() else ""
+        # A leading "^" marks a term that only counts when unqualified:
+        # "sources said" is anonymous hearsay, "Ministry sources said" names a
+        # source.
+        guard = ""
+        if stripped.startswith("^"):
+            stripped = stripped[1:]
+            guard = r"(?<![A-Za-z] )"
+
+        lead = guard + (r"\b" if stripped[:1].isalnum() else "")
         if not stripped[-1:].isalnum():
             # Ends in punctuation or a space ("(", "per "): match it literally.
             parts.append(lead + re.escape(stripped))
@@ -340,6 +351,11 @@ def matches_any(text: str, list_name: str) -> bool:
 def count_matches(text: str, list_name: str) -> int:
     """How many whole-word occurrences of the named list appear in `text`."""
     return len(_terms_pattern(list_name).findall(text or ""))
+
+
+def strip_terms(text: str, list_name: str) -> str:
+    """Remove every occurrence of the named list's terms from `text`."""
+    return _terms_pattern(list_name).sub(" ", text or "")
 
 
 def found_terms(text: str, list_name: str) -> List[str]:
@@ -389,8 +405,13 @@ def best_tier(text: str) -> int:
 
 # Words/patterns that signal an attribution is present near a claim.
 ATTRIBUTION_MARKERS = [
-    "according to", "said", "says", "reported", "stated", "cited", "per ",
-    "sources said", "data from", "study by", "research by", "found that",
+    # "say" as well as "said"/"says": the inflection rule adds suffixes, it does
+    # not strip them, so "Critics say ..." was not recognised as an attribution.
+    # Note VAGUE_ATTRIBUTION below — "many people are saying" is hearsay, not a
+    # source, and must not satisfy this list.
+    "according to", "say", "said", "says", "reported", "stated", "cited", "per ",
+    "told", "wrote", "noted", "argued",
+    "data from", "study by", "research by", "found that",
     "as reported by", "in a statement", "confirmed", "disclosed",
 ]
 
@@ -442,8 +463,33 @@ OPINION_AS_FACT_MARKERS = [
 # Named lists for matches_any/count_matches/found_terms above. Going through the
 # registry gets word-boundary matching; `term in text` does not, and that has
 # been wrong four times.
+# Phrasings that look like attribution but name nobody. "Many people are saying"
+# is the canonical example: it satisfies a naive keyword match while being the
+# very thing the sourcing rules exist to catch.
+# Attribution to nobody in particular. These read like sourcing and use the same
+# verbs, so they are stripped out before the attribution list is applied --
+# otherwise "many people are saying" counts as a source, which is the exact
+# phrasing these rules exist to catch. "sources said" used to live in
+# ATTRIBUTION_MARKERS and belongs here for the same reason: an unnamed source is
+# not a source. Naming one ("Ministry sources said") still attributes, because
+# the named institution is picked up by the source-tier check.
+VAGUE_ATTRIBUTION = [
+    "many people are saying", "people are saying", "some say", "they say",
+    "many people say", "some believe", "many believe",
+    "experts believe", "experts say", "critics believe",
+    "observers say", "analysts believe",
+    # Bare, unqualified "sources". A leading "^" means "not preceded by another
+    # word" (see _boundary_pattern): naming whose sources they are -- "Ministry
+    # sources said", "court sources say" -- is genuine attribution and must not
+    # be stripped.
+    "^sources say", "^sources said", "^sources suggest", "^sources claim",
+    "it is said", "it's said", "rumour has it", "rumor has it",
+    "everyone knows", "sources close to", "word has it", "reportedly",
+]
+
 _TERM_LISTS: Dict[str, List[str]] = {
     "attribution": ATTRIBUTION_MARKERS,
+    "vague_attribution": VAGUE_ATTRIBUTION,
     "bias": BIAS_PHRASES,
     "high_scrutiny": HIGH_SCRUTINY_TERMS,
     "ai_cliches": AI_CLICHES,

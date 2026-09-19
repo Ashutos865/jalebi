@@ -148,6 +148,10 @@ def _has_attribution(sentence_low: str, *, exclude_subject: bool = False) -> boo
     exists for precisely that sentence.
     """
     text = _ACCUSED_ENTITY.sub(" ", sentence_low) if exclude_subject else sentence_low
+    # Strip vague hearsay first. "Many people are saying" contains "saying" and
+    # would otherwise satisfy the attribution list — while being precisely the
+    # unsourced phrasing these rules exist to catch.
+    text = C.strip_terms(text, "vague_attribution")
     if C.matches_any(text, "attribution"):
         return True
     # C.best_tier matches on word boundaries. Scanning SOURCE_TIERS by substring
@@ -176,8 +180,10 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
     checks: List[CheckItem] = []
 
     # ── sourcing signals ──────────────────────────────────────────────────
-    # Whole-word counting: "unsaid" and "misstated" were counted as attributions.
-    attributions = C.count_matches(text, "attribution")
+    # Whole-word counting, with vague hearsay removed first: "unsaid" and
+    # "misstated" contain attribution words, and "many people are saying" looks
+    # like one while naming nobody.
+    attributions = C.count_matches(C.strip_terms(text, "vague_attribution"), "attribution")
     # Word-boundary matching: plain substrings scored "went to university" as a
     # Tier 3 media source.
     tiers_present = C.tiers_present(text)
@@ -244,11 +250,21 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
             break
 
     # opinion-as-fact
+    # Every occurrence, not just the first.
+    #
+    # low.find(marker) examined only the first instance, so if that one happened
+    # to be attributed the marker was treated as clean and later unattributed
+    # uses were never checked. That made the cap order-dependent: swapping two
+    # paragraphs changed the score, in an engine whose contract is that the same
+    # input always produces the same report.
+    _opinion_capped = False
     for marker in C.OPINION_AS_FACT_MARKERS:
-        if marker in low:
-            idx = low.find(marker)
-            sent = _sentence_at(text, idx)
+        if _opinion_capped:
+            break
+        for match in re.finditer(re.escape(marker), low):
+            sent = _sentence_at(text, match.start())
             if not _has_attribution(sent.lower()):
+                _opinion_capped = True
                 caps.append(CapHit("opinion_as_fact", C.HARD_CAPS["opinion_as_fact"].ceiling,
                                    C.HARD_CAPS["opinion_as_fact"].label, sent[:180]))
                 issues.append(RuleIssue(

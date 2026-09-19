@@ -39,9 +39,30 @@ _AI_CACHE: "OrderedDict[str, AIReport]" = OrderedDict()
 _AI_CACHE_MAX = 256
 
 
-def _content_key(text: str, content_type: str, model: str) -> str:
+def _content_key(
+    text: str,
+    content_type: str,
+    model: str,
+    knowledge: Optional[List[str]] = None,
+) -> str:
+    """Cache key for one AI judgment.
+
+    The retrieved knowledge passages are part of the key because they are part
+    of the system prompt. Without them, the first evaluation of an article —
+    typically before any handbook is seeded — poisoned the cache: every later
+    evaluation of that text reused the knowledge-free judgment while reporting
+    `knowledge_used: 2`. Seeding the Constitution, or an editor adding a
+    handbook document, then had no effect on anything already scored.
+    """
     norm = re.sub(r"\s+", " ", text.strip())
-    return hashlib.sha256(f"{model}|{content_type}|{norm}".encode()).hexdigest()
+    # Order-insensitive: retrieval may return the same passages ranked
+    # differently between calls, and that should not miss the cache.
+    kb = hashlib.sha256(
+        "\n--\n".join(sorted(knowledge or [])).encode()
+    ).hexdigest()[:16]
+    return hashlib.sha256(
+        f"{model}|{content_type}|{kb}|{norm}".encode()
+    ).hexdigest()
 
 
 def _sop_report(
@@ -160,7 +181,7 @@ class HybridEvaluator(Evaluator):
         text = body if body is not None else request.text
         heading = title if title is not None else request.title
 
-        key = _content_key(text, request.content_type.value, self._model)
+        key = _content_key(text, request.content_type.value, self._model, knowledge)
         if key in _AI_CACHE:
             _AI_CACHE.move_to_end(key)
             return _AI_CACHE[key]

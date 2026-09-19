@@ -66,7 +66,13 @@ async def list_documents(session: AsyncSession) -> List[dict]:
             continue
         first = rows[0] if rows else None
         latest = rows[-1] if rows else None
-        owner = users.get((latest or first).owner_id) if (latest or first) else None
+        # The first identified author keeps the credit. Taking it from the
+        # latest evaluation meant one anonymous re-run blanked the writer's
+        # name from the tracker.
+        owner_id = next((e.owner_id for e in rows if e.owner_id), None)
+        if owner_id is None and doc is not None:
+            owner_id = doc.owner_id
+        owner = users.get(owner_id) if owner_id else None
         first_score = first.overall_score if first else None
         latest_score = latest.overall_score if latest else None
         trend = (latest_score - first_score) if (first_score is not None and latest_score is not None) else 0
@@ -82,7 +88,10 @@ async def list_documents(session: AsyncSession) -> List[dict]:
             "url": (doc.url if doc else None) or (
                 f"https://docs.google.com/document/d/{gid}/edit" if gid else None
             ),
-            "title": (latest.title if latest else (doc.title if doc else "Untitled")),
+            # The Document's title is authoritative, since writing it is
+            # permission-checked. Preferring the latest Evaluation's title let
+            # an anonymous /api/evaluate rename someone else's tracked article.
+            "title": (doc.title if doc else (latest.title if latest else "Untitled")),
             "content_type": latest.content_type if latest else (doc.content_type if doc else ""),
             "owner": owner.email if owner else None,
             # SOP tracking-sheet fields
