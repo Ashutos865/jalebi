@@ -152,7 +152,10 @@ export default function App() {
       const res = await markIssuesInDoc(doc.docId, issuesWithQuotes(result));
       setMarkMsg(
         `Highlighted ${res.marked} line(s) · ${res.commented} comment(s)` +
-          (res.missed ? ` · ${res.missed} not located` : ''),
+          (res.missed ? ` · ${res.missed} not located` : '') +
+          // A partial write used to be invisible: a lower comment count was the
+          // only hint that anything had failed.
+          (res.commentsFailed ? ` · ${res.commentsFailed} comment(s) failed` : ''),
       );
     } catch (e) {
       setMarkMsg(e instanceof Error ? e.message : 'Failed to mark the doc.');
