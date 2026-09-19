@@ -95,14 +95,20 @@ def _is_sourced(sentence: str) -> bool:
     "the Government is corrupt" counts as *citing* the government, because
     "government" is itself a tier-1 source keyword. Naming who you are writing
     about is not evidence.
+
+    Anonymous hearsay is removed for the same reason. "Sources say the
+    Government is completely corrupt" names nobody, so it was unsourced
+    disparagement that escaped review -- and prefixing a flagged sentence with
+    "many people say" made the flag disappear.
     """
     if _URL.search(sentence):
         return True
 
-    if C.matches_any(sentence, "attribution"):
+    grounded = C.strip_terms(sentence, "vague_attribution")
+    if C.matches_any(grounded, "attribution"):
         return True
 
-    without_subject = NATIONAL_SUBJECTS.sub(" ", sentence)
+    without_subject = NATIONAL_SUBJECTS.sub(" ", grounded)
     return C.best_tier(without_subject) != 99
 
 

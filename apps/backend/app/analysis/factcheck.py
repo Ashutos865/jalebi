@@ -152,6 +152,12 @@ def build(text: str) -> FactCheckList:
             risk, reason = RISK_MEDIUM, "Statistic — open the link and confirm the figure matches."
         elif has_quote:
             risk, reason = RISK_MEDIUM, "Quotation — confirm the wording against the source."
+        elif tier is not None and tier >= 5:
+            # Source quality ranked claims only when they carried a figure, so a
+            # claim resting on a tweet sorted alongside one resting on a Supreme
+            # Court judgment. Tier 5+ is blogs, op-eds and social posts: the
+            # worklist exists to put exactly those in front of the editor.
+            risk, reason = RISK_MEDIUM, "Claim resting on a low-tier source — confirm it against a primary one."
         else:
             risk, reason = RISK_LOW, "Claim is attributed — spot-check the source supports it."
 
