@@ -4,6 +4,7 @@
 
 import { isEditable } from '@/lib/inline/editable';
 import { FieldChecker } from '@/lib/inline/checker';
+import { disposeMirror } from '@/lib/inline/rects';
 
 const INLINE_FLAG = 'jalebi.inline';
 
@@ -84,6 +85,7 @@ export default defineContentScript({
     // navigation does not leave listeners attached to a dead document.
     const teardown = () => {
       observer.disconnect();
+      disposeMirror();
       document.removeEventListener('focusin', onFocusIn, true);
       try {
         chrome.storage.onChanged.removeListener(onStorageChanged);
