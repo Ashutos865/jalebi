@@ -108,13 +108,14 @@ jalebi/
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production setup, including the startup safety gate |
 | [PRODUCT.md](PRODUCT.md) | Market analysis and what a public version would require |
 | [PLAN.md](PLAN.md) | The hardening work, with measured findings |
+| [AUDIT_ROUNDS.md](AUDIT_ROUNDS.md) | Later audit rounds: what was found, and what is still not fixed |
 | [SOP_IMPLEMENTATION.md](SOP_IMPLEMENTATION.md) | How the TIES Content SOP maps onto the system |
 
 ## Tests
 
 ```bash
-cd apps/backend  && pytest -q          # 349 tests
-cd apps/extension && npm test          # 60 tests
+cd apps/backend  && pytest -q          # 548 tests
+cd apps/extension && npm test          # 95 tests
 ```
 
 No API key is required for either: the test suite pins `JALEBI_PROVIDER=mock`, so

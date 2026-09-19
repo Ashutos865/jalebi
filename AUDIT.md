@@ -3,8 +3,10 @@
 > **Status: historical.** This is the original audit, kept as the record of what was
 > found. Everything in the Blockers and High sections has since been fixed, along with
 > most of the Medium tier — see [PLAN.md](PLAN.md) for the work and the commit history
-> for each fix. The test suite has gone from 39 (7 failing) to 349 backend and 60
-> extension tests. Findings below are **not** a description of the current codebase.
+> for each fix. The test suite has gone from 39 (7 failing) to 548 backend and 95
+> extension tests. Three further audit rounds followed this one; the most recent is
+> written up in [AUDIT_ROUNDS.md](AUDIT_ROUNDS.md). Findings below are **not** a
+> description of the current codebase.
 
 Full read of ~6,700 lines of Python and ~3,800 lines of TypeScript, plus a verified
 build/test run of both apps. Findings below are grouped by severity and each one
