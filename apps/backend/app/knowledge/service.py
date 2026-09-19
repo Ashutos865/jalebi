@@ -63,13 +63,47 @@ async def create_knowledge_doc(
 
 
 async def reindex_all(session: AsyncSession) -> int:
-    """Rebuild the vector store from the DB (called on startup for in-memory store)."""
-    get_store().clear()
+    """Rebuild the vector store from the DB (called on startup, and by admins).
+
+    Re-indexed in place rather than cleared first. `clear()` emptied the store
+    for the whole length of the rebuild, and an admin can trigger this from the
+    API while the service is live -- so every evaluation landing in that window
+    silently retrieved nothing and scored without the handbook, exactly the
+    failure mode where RAG reports success while doing nothing.
+
+    `index_doc` already replaces each document's own chunks, so rebuilding first
+    and pruning afterwards leaves the store continuously serving. The prune
+    removes chunks for documents that have since been deleted from the DB.
+    """
     docs = (await session.execute(select(KnowledgeDoc))).scalars().all()
     total = 0
+    live_ids = set()
     for doc in docs:
         total += index_doc(doc)
+        live_ids.add(doc.id)
+
+    store = get_store()
+    for stale_id in _indexed_doc_ids(store) - live_ids:
+        store.delete_prefix(f"kdoc:{stale_id}:")
     return total
+
+
+def _indexed_doc_ids(store) -> set:
+    """Document ids currently present in the store, from the chunk keys.
+
+    Keys are "kdoc:<doc id>:<chunk>". A store that cannot enumerate its keys
+    (Qdrant) returns nothing, so no pruning happens there; its chunks are still
+    replaced per document by index_doc.
+    """
+    ids = set()
+    for key in getattr(store, "ids", lambda: [])():
+        parts = key.split(":")
+        if len(parts) >= 3 and parts[0] == "kdoc":
+            try:
+                ids.add(int(parts[1]))
+            except ValueError:
+                continue
+    return ids
 
 
 async def retrieve_passages(text: str, content_type: str) -> List[str]:

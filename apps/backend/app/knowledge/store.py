@@ -59,6 +59,11 @@ class InMemoryStore:
     def count(self) -> int:
         return len(self._items)
 
+    def ids(self) -> List[str]:
+        """Every chunk key held. Used by reindex_all to prune deleted docs."""
+        with self._lock:
+            return [i["id"] for i in self._items]
+
 
 class QdrantStore:  # pragma: no cover — requires a running Qdrant
     COLLECTION = "jalebi_knowledge"
