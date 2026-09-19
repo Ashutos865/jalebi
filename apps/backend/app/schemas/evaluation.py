@@ -95,6 +95,31 @@ class EvaluationMeta(BaseModel):
     knowledge_used: int = 0          # # of knowledge-base passages retrieved (RAG, P4)
 
 
+class ClassifyResponse(BaseModel):
+    """Auto-detected content type. Mirrors ClassifyResponse in lib/types.ts."""
+
+    content_type: ContentType
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    label: str
+    scores: Dict[str, int] = Field(default_factory=dict)
+
+
+class ProviderOption(BaseModel):
+    id: str
+    label: str
+    open_source: bool = False
+    model: str = ""
+    available: bool = False
+    note: str = ""
+
+
+class ProvidersResponse(BaseModel):
+    """Providers the writer may pick. Keys never appear here."""
+
+    active: str
+    providers: List[ProviderOption] = Field(default_factory=list)
+
+
 class SopCheckItem(BaseModel):
     """One mechanical TIES SOP check (header, word count, structure, references)."""
 

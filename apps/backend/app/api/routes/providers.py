@@ -9,22 +9,27 @@ from fastapi import APIRouter
 
 from app.config import settings
 from app.llm import registry
+from app.schemas.evaluation import ProviderOption, ProvidersResponse
 
 router = APIRouter(tags=["providers"])
 
 
-@router.get("/providers")
-async def providers() -> dict:
+# response_model so the shape the sidebar depends on is enforced and documented,
+# rather than being asserted only by the TypeScript interface.
+@router.get("/providers", response_model=ProvidersResponse)
+async def providers() -> ProvidersResponse:
     allowed = {p.id for p in registry.allowed_providers()}
-    items = [
-        {
-            "id": p.id,
-            "label": p.label,
-            "open_source": p.open_source,
-            "model": p.model(),
-            "available": p.id in allowed,
-            "note": p.note,
-        }
-        for p in registry.PROVIDERS.values()
-    ]
-    return {"active": settings.provider, "providers": items}
+    return ProvidersResponse(
+        active=settings.provider,
+        providers=[
+            ProviderOption(
+                id=p.id,
+                label=p.label,
+                open_source=p.open_source,
+                model=p.model(),
+                available=p.id in allowed,
+                note=p.note,
+            )
+            for p in registry.PROVIDERS.values()
+        ],
+    )

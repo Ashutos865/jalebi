@@ -7,6 +7,7 @@ See `.env.example`.
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import List
@@ -120,6 +121,10 @@ class Settings:
     rag_enabled: bool = _bool("JALEBI_RAG_ENABLED", True)
     rag_top_k: int = int(os.getenv("JALEBI_RAG_TOP_K", "4"))
     qdrant_url: str = os.getenv("QDRANT_URL", "")          # empty → in-memory store
+    # Worker count, for the multi-worker checks below. Gunicorn and Uvicorn both
+    # honour WEB_CONCURRENCY; a process manager that does not set it looks like a
+    # single worker, which is the safe assumption.
+    web_concurrency: int = int(os.getenv("WEB_CONCURRENCY", "1"))
     qdrant_api_key: str = os.getenv("QDRANT_API_KEY", "")
     embedding_backend: str = os.getenv("JALEBI_EMBEDDING", "hash")  # hash | openai
 
@@ -209,13 +214,53 @@ def unsafe_production_settings(s: "Settings" = None) -> List[str]:
             "bearer token. List the exact origins instead."
         )
 
+    # The in-memory vector store is a process global, so each worker builds and
+    # holds its own index. With several workers the same document retrieves
+    # different supporting passages depending on which worker answers — and the
+    # startup reindex runs once per worker. Silent, and impossible to diagnose
+    # from the outside.
+    problems.extend(misconfiguration_warnings(s))
+
     return problems
+
+
+def misconfiguration_warnings(s: "Settings" = None) -> List[str]:
+    """Problems worth saying out loud in any environment.
+
+    Separate from the production gate: these produce wrong behaviour rather than
+    an insecure one, so they are worth a warning even in development, where the
+    gate is deliberately inert.
+    """
+    s = s or settings
+    warnings: List[str] = []
+
+    # getattr with defaults: this runs against Settings in production and against
+    # lightweight stand-ins in tests, and a new check should never break a caller
+    # that predates the field it reads.
+    workers = getattr(s, "web_concurrency", 1)
+    rag_on = getattr(s, "rag_enabled", False)
+    qdrant = getattr(s, "qdrant_url", "")
+
+    # The in-memory vector store is a process global, so each worker builds and
+    # holds its own index: the same document retrieves different supporting
+    # passages depending on which worker answers, and the startup reindex runs
+    # once per worker. Silent, and impossible to diagnose from outside.
+    if rag_on and not qdrant and workers > 1:
+        warnings.append(
+            f"WEB_CONCURRENCY={workers} with no QDRANT_URL: the vector store is "
+            "per-process, so retrieval results will vary between workers. Set "
+            "QDRANT_URL, run a single worker, or set JALEBI_RAG_ENABLED=false."
+        )
+    return warnings
 
 
 def enforce_production_safety(s: "Settings" = None) -> None:
     """Refuse to start an unsafe production deployment. No-op outside production."""
     s = s or settings
     if s.environment != "production":
+        # Still surface anything that would silently misbehave.
+        for warning in misconfiguration_warnings(s):
+            logging.getLogger("jalebi").warning("Configuration: %s", warning)
         return
     problems = unsafe_production_settings(s)
     if problems:

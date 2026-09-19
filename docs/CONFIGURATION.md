@@ -91,7 +91,8 @@ your reverse proxy.
 | `JALEBI_RAG_ENABLED` | `true` | Retrieve editorial standards into the prompt |
 | `JALEBI_RAG_TOP_K` | `4` | Passages retrieved per evaluation |
 | `JALEBI_EMBEDDING` | `hash` | `hash` (no dependencies) or `openai` |
-| `QDRANT_URL` | *(in-memory)* | Vector store. **Required when running more than one worker** — the in-memory store is per-process, so workers would disagree |
+| `QDRANT_URL` | *(in-memory)* | Vector store. **Required when running more than one worker** — the in-memory store is per-process, so workers would disagree. Enforced: see below |
+| `WEB_CONCURRENCY` | `1` | Worker count. Read only to detect the multi-worker case above; your process manager sets the actual concurrency |
 | `QDRANT_API_KEY` | — | Qdrant auth |
 
 ## Grammar
@@ -120,6 +121,12 @@ of these hold:
 - `JALEBI_ALLOW_DEV_LOGIN=true` with no `JALEBI_SIGNUP_SECRET`
 - `JALEBI_ALLOW_DEV_LOGIN=true` with no email or domain allow-list
 - `JALEBI_CORS_ORIGINS` contains `*`
+- `WEB_CONCURRENCY > 1` with RAG enabled and no `QDRANT_URL`
+
+The last one is not a security problem but a correctness one: the in-memory
+vector store is per-process, so the same document would retrieve different
+supporting passages depending on which worker answered. Outside production it is
+logged as a warning rather than blocking startup.
 
 The error names every problem and how to fix it. This is deliberate: each of these
 defaults is safe in development and dangerous in production, and the combination of the
