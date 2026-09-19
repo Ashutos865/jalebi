@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import maybe_require_auth
@@ -39,6 +39,7 @@ def _resolve_provider(requested: Optional[str]) -> str:
 @router.post("/evaluate", response_model=EvaluationResult)
 async def evaluate(
     request: EvaluationRequest,
+    background: BackgroundTasks,
     user: Optional[User] = Depends(maybe_require_auth),
     session: AsyncSession = Depends(get_session),
 ) -> EvaluationResult:
@@ -68,13 +69,13 @@ async def evaluate(
     except Exception:
         await session.rollback()
 
-    # Notify on publication-ready (best-effort).
+    # Notify on publication-ready (best-effort). Scheduled rather than awaited:
+    # this used to post to each webhook in turn inside the request, so two hung
+    # webhooks added sixteen seconds to the writer's response for a message
+    # they never see.
     if settings.notify_on_ready and result.publication_ready:
-        try:
-            from app.integrations.notify import notify_publication_ready
+        from app.integrations.notify import notify_publication_ready
 
-            await notify_publication_ready(result, request)
-        except Exception:
-            pass
+        background.add_task(notify_publication_ready, result, request)
 
     return result

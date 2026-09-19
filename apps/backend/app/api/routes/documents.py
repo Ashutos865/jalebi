@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,24 +84,29 @@ def _workflow_out(doc: Document) -> dict:
     }
 
 
-async def _notify_transition(doc: Document, previous: str, actor: User) -> None:
-    """Announce the handoffs the SOP announces in the group chat."""
+def _transition_message(doc: Document, actor: User) -> str:
+    """The handoff announcement for a transition, or "" if it is not announced.
+
+    PUBLISHED and REVISING were missing: the team was told a piece had been
+    approved but never that it went live, and a writer was never told their
+    draft had come back to them -- the two handoffs they most need to see.
+    """
     messages = {
-        states.SUBMITTED: f"📝 *{doc.title}* submitted for review by {actor.email}.",
-        states.APPROVED: f"✅ GTG — *{doc.title}* approved by {actor.email}.",
-        states.REASSIGNED: f"🔄 *{doc.title}* reassigned: {doc.escalation_reason}",
-        states.SCRAPPED: f"🚫 *{doc.title}* scrapped: {doc.escalation_reason}",
+        states.SUBMITTED: f"*{doc.title}* submitted for review by {actor.email}.",
+        states.APPROVED: f"GTG — *{doc.title}* approved by {actor.email}.",
+        states.PUBLISHED: f"*{doc.title}* published by {actor.email}.",
+        states.REVISING: f"*{doc.title}* sent back for revision by {actor.email}.",
+        states.REASSIGNED: f"*{doc.title}* reassigned: {doc.escalation_reason}",
+        states.SCRAPPED: f"*{doc.title}* scrapped: {doc.escalation_reason}",
     }
-    text = messages.get(doc.status)
+    text = messages.get(doc.status, "")
     if not text:
-        return
+        return ""
     if doc.status == states.APPROVED and doc.override_reason:
-        text += f"\n⚠️ Approved with override: {doc.override_reason}"
-    try:
-        await notify(text)
-    except Exception:
-        # A webhook outage must never fail the transition.
-        pass
+        text += f"\nApproved with override: {doc.override_reason}"
+    if doc.status == states.REVISING and doc.escalation_reason:
+        text += f"\nReason: {doc.escalation_reason}"
+    return text
 
 
 @router.get("")
@@ -207,6 +212,7 @@ class TransitionRequest(BaseModel):
 async def transition_document(
     google_doc_id: str,
     body: TransitionRequest,
+    background: BackgroundTasks,
     user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
@@ -229,7 +235,11 @@ async def transition_document(
               "reason": body.reason or None,
               "override_reason": body.override_reason or None},
     )
-    await _notify_transition(doc, previous, user)
+    # Scheduled, not awaited: a hung webhook must not delay the editor's
+    # response. Two configured webhooks at an 8s timeout each cost 16 seconds.
+    text = _transition_message(doc, user)
+    if text:
+        background.add_task(notify, text)
     return {"ok": True, **_workflow_out(doc)}
 
 
