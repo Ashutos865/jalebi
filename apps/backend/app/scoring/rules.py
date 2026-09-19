@@ -57,8 +57,15 @@ class RuleReport:
 # local regex here is a mistake (it was one, twice).
 _WORD = re.compile(r"[A-Za-z']+")
 # "hard" statistics: percentages, currency, large counts, explicit magnitudes.
+#
+# Decimals are part of the number. Without the fractional group the pattern
+# matched the tail of a decimal instead of the figure: "5.5%" yielded "5%",
+# "7.25 percent" yielded "25 percent", and "$1.5 million" matched twice, as "$1"
+# and "5 million". Detection happened to survive that (the tail still matches),
+# but any caller reading the matched text would quote a number the writer never
+# wrote, so the group is anchored properly here rather than left as a trap.
 _STAT = re.compile(
-    r"(\$\s?\d[\d,]*|\d[\d,]*\s?(?:%|percent|per cent)|\b\d[\d,]*\s?"
+    r"(\$\s?\d[\d,]*(?:\.[0-9]+)?(?:\s?(?:million|billion|trillion|crore|lakh|thousand|people|deaths|casualties|soldiers|km|kg|tonnes|votes|seats))?|\d[\d,]*(?:\.[0-9]+)?\s?(?:%|percent|per cent)|\b\d[\d,]*(?:\.[0-9]+)?\s?"
     r"(?:million|billion|trillion|crore|lakh|thousand|people|deaths|casualties|"
     r"soldiers|km|kg|tonnes|votes|seats)\b|\b\d{4}\b(?=.*\b(?:since|in|by)\b))",
     re.IGNORECASE,

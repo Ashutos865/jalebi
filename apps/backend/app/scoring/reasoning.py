@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Dict, List
 
 from app.text import sentences as _sentences
@@ -125,8 +126,39 @@ class ReasoningSignals:
         }
 
 
+@lru_cache(maxsize=16)
+def _vocab_pattern(needles: tuple) -> "re.Pattern[str]":
+    """One alternation over a vocabulary, longest phrase first.
+
+    Longest-first matters because these lists overlap: "compared to" must win
+    over "compared", and "nonetheless" must not be split. Word boundaries are
+    applied only where a term starts or ends with a word character, so entries
+    written with deliberate spaces (" vs ", "yet ") keep their meaning.
+    """
+    parts = []
+    for needle in sorted(needles, key=len, reverse=True):
+        esc = re.escape(needle)
+        if needle[:1].isalnum():
+            esc = r"\b" + esc
+        if needle[-1:].isalnum():
+            esc = esc + r"\b"
+        parts.append(esc)
+    return re.compile("|".join(parts), re.IGNORECASE)
+
+
 def _count(haystack: str, needles: List[str]) -> int:
-    return sum(haystack.count(n) for n in needles)
+    """How many distinct occurrences of a vocabulary appear in `haystack`.
+
+    Two bugs lived in the one-line `sum(haystack.count(n) ...)` this replaces.
+    It counted substrings, so "precaution" scored a counterpoint via "caution"
+    -- the seventh instance of that bug class in this codebase. And it let
+    several needles claim the same span, so "although" counted twice (as
+    "although" and "though") and one concession earned double credit.
+
+    Scanning once with a single alternation fixes both: each position in the
+    text is consumed by at most one term.
+    """
+    return len(_vocab_pattern(tuple(needles)).findall(haystack))
 
 
 def _per_100_words(count: int, words: int) -> float:

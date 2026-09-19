@@ -68,8 +68,17 @@ def combine(rules: RuleReport, ai: AIReport, content_type: str) -> Composed:
     categories: List[CategoryScore] = []
     for d in C.DIMENSIONS:
         rule_s = rules.dim_scores.get(d.key, 60)
-        ai_s = _q5(ai.dim_scores.get(d.key, rule_s))
-        final = int(round(d.alpha * rule_s + (1 - d.alpha) * ai_s))
+        raw_ai = ai.dim_scores.get(d.key)
+        if raw_ai is None:
+            # Nothing to blend: the model said nothing about this dimension, so
+            # the rules score is the whole answer. Quantising rule_s and
+            # blending it with itself moved the score by up to a point in
+            # either direction -- drift out of a value the model never produced.
+            ai_s = rule_s
+            final = rule_s
+        else:
+            ai_s = _q5(raw_ai)
+            final = int(round(d.alpha * rule_s + (1 - d.alpha) * ai_s))
         final = max(0, min(100, final))
         categories.append(CategoryScore(
             name=d.name, key=d.key, score=final, weight=weights.get(d.key, d.weight),

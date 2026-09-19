@@ -90,7 +90,12 @@ class WeightError(ValueError):
 
 
 def validate_weights(weights: Dict[str, float]) -> Dict[str, float]:
-    """Check an override and return it normalised to sum to 1.0.
+    """Check an admin weight override and return it as given, rounded.
+
+    This validates; it does not normalise. Filling unspecified dimensions from
+    the content-type base and normalising the result to sum to 1.0 happens in
+    `weights_for`, which is what scoring actually reads. Keeping the stored
+    override raw means an admin sees back exactly the numbers they entered.
 
     Strict on purpose. The previous implementation validated only the dimension
     *keys*, so an all-zero override normalised to every weight being 0.0 (every
@@ -118,9 +123,8 @@ def validate_weights(weights: Dict[str, float]) -> Dict[str, float]:
     if total <= 0:
         raise WeightError("Weights must add up to more than zero.")
 
-    # Fill unspecified dimensions from the base, then normalise the whole vector
-    # so the stored result is exactly what scoring will use — no silent rescaling
-    # of a number the admin never entered.
+    # Returned as entered: no silent rescaling of a number the admin never
+    # typed. `weights_for` merges this over the base and normalises there.
     return {k: round(v, 6) for k, v in weights.items()}
 
 
