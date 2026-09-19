@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.auth.deps import current_user, require_role
 from app.db.base import get_session
@@ -35,6 +36,24 @@ async def _get_doc(session: AsyncSession, google_doc_id: str) -> Document:
     if doc is None:
         raise HTTPException(404, "Document not tracked yet.")
     return doc
+
+
+# Someone else changed this document between our read and our write. The state
+# we validated against is gone, so the caller must re-read and decide again --
+# silently winning the race is how an editor's scrap was lost to a concurrent
+# approval while both callers were told "ok".
+_CONFLICT = (
+    "This document was changed by someone else while you were working on it. "
+    "Reload it and try again."
+)
+
+
+async def _commit_or_conflict(session: AsyncSession) -> None:
+    try:
+        await session.commit()
+    except StaleDataError as exc:
+        await session.rollback()
+        raise HTTPException(409, _CONFLICT) from exc
 
 
 def _workflow_out(doc: Document) -> dict:
@@ -136,7 +155,7 @@ async def patch_doc(
         doc.published_for = body.published_for
     if body.co_authors is not None:
         doc.co_authors = body.co_authors
-    await session.commit()
+    await _commit_or_conflict(session)
     await log_action(session, actor=user, action="document.update", target=doc.title,
                      meta={"status": doc.status})
     return {"ok": True, "status": doc.status, "editor": doc.editor,
@@ -170,7 +189,7 @@ async def assign_document(
         doc, assigned_to=body.assigned_to, assigned_by=user.email,
         editor=body.editor, word_min=body.word_min, word_max=body.word_max,
     )
-    await session.commit()
+    await _commit_or_conflict(session)
     await log_action(session, actor=user, action="document.assign",
                      target=doc.title, meta={"assigned_to": body.assigned_to})
     return {"ok": True, **_workflow_out(doc)}
@@ -203,7 +222,7 @@ async def transition_document(
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
 
-    await session.commit()
+    await _commit_or_conflict(session)
     await log_action(
         session, actor=user, action=f"document.{body.status}", target=doc.title,
         meta={"from": previous, "to": body.status,
@@ -256,7 +275,7 @@ async def set_integrity(
     doc.plagiarism_percent = body.plagiarism_percent
     doc.integrity_checked_by = user.email
     doc.integrity_checked_at = utcnow()
-    await session.commit()
+    await _commit_or_conflict(session)
 
     verdict = integrity_verdict(doc.ai_percent, doc.plagiarism_percent)
     await log_action(

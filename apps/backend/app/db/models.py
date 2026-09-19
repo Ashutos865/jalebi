@@ -41,6 +41,8 @@ class Document(Base):
     __tablename__ = "documents"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Optimistic locking (see __mapper_args__ at the end of this class).
+    version_id: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     google_doc_id: Mapped[Optional[str]] = mapped_column(String(128), index=True, nullable=True)
     url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     title: Mapped[str] = mapped_column(String(500), default="Untitled")
@@ -94,6 +96,14 @@ class Document(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+    # Two editors acting on the same submitted article -- one approving, one
+    # scrapping -- each validated against the status they had read, each wrote,
+    # and each was told "ok". The scrap silently vanished and the piece went on
+    # to publication. Every UPDATE now carries the version it read, so a
+    # concurrent write matches no row and raises StaleDataError, which the
+    # routes surface as 409.
+    __mapper_args__ = {"version_id_col": version_id}
 
 
 class Evaluation(Base):
