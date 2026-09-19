@@ -69,6 +69,16 @@ def _sentences(text: str) -> List[str]:
     return sentences.split(text)
 
 
+# Institution words that are both tier-1 source keywords and the kind of body an
+# article accuses. Stripped before judging whether an allegation is sourced, so
+# the subject of the claim cannot pass as evidence for it.
+_ACCUSED_ENTITY = re.compile(
+    r"\b(?:ministry|government|court|parliament|regulator|authority|commission|"
+    r"department|agency|bureau|board|council)\b",
+    re.IGNORECASE,
+)
+
+
 def _paragraphs(text: str) -> List[str]:
     return [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
 
@@ -77,13 +87,22 @@ def _count_ci(text_low: str, phrase: str) -> int:
     return text_low.count(phrase)
 
 
-def _has_attribution(sentence_low: str) -> bool:
-    if any(m in sentence_low for m in C.ATTRIBUTION_MARKERS):
+def _has_attribution(sentence_low: str, *, exclude_subject: bool = False) -> bool:
+    """Does this sentence attribute its claim to something?
+
+    `exclude_subject` strips institution words before looking for a source, for
+    the case where the institution is what the sentence is *about*. Without it,
+    "the Ministry is accused of fraud" reads as attributed — because "ministry"
+    is a tier-1 source keyword — which silently disabled the hard cap that
+    exists for precisely that sentence.
+    """
+    text = _ACCUSED_ENTITY.sub(" ", sentence_low) if exclude_subject else sentence_low
+    if any(m in text for m in C.ATTRIBUTION_MARKERS):
         return True
-    for tier_terms in C.SOURCE_TIERS.values():
-        if any(t in sentence_low for t in tier_terms):
-            return True
-    return False
+    # C.best_tier matches on word boundaries. Scanning SOURCE_TIERS by substring
+    # here meant "corruption" contained "pti" and therefore counted as a Press
+    # Trust of India citation.
+    return C.best_tier(text) != 99
 
 
 def _clip(v: float) -> int:
@@ -139,12 +158,20 @@ def analyze(text: str, title: Optional[str], content_type: str) -> RuleReport:
         caps.append(CapHit("unsupported_claim", C.HARD_CAPS["unsupported_claim"].ceiling,
                            C.HARD_CAPS["unsupported_claim"].label, top))
 
-    # sensitive allegations without sourcing
+    # Sensitive allegations without sourcing.
+    #
+    # Sourcing is judged on the sentence itself, with the accused institution
+    # removed. Using the document-wide `best_tier` meant that naming the body you
+    # were accusing — "the Ministry is accused of fraud" — registered as a tier-1
+    # citation and disabled this cap entirely, because "ministry" is a tier-1
+    # source keyword. The subject of an allegation is not evidence for it.
     for s in sents:
         sl = s.lower()
         sensitive = any(t in sl for t in C.HIGH_SCRUTINY_TERMS)
         allegationy = any(w in sl for w in ("alleged", "allegation", "accused", "reportedly", "claim"))
-        if sensitive and allegationy and not _has_attribution(sl) and best_tier > 3:
+        local_tier = C.best_tier(_ACCUSED_ENTITY.sub(" ", s))
+        sourced = _has_attribution(sl, exclude_subject=True)
+        if sensitive and allegationy and not sourced and local_tier > 3:
             acc -= 15
             caps.append(CapHit(
                 "sensitive_allegation_unsourced",
