@@ -6,6 +6,7 @@ the prompt-builder folds into the system prompt.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import List, Optional
 
 from sqlalchemy import select
@@ -106,11 +107,25 @@ def _indexed_doc_ids(store) -> set:
     return ids
 
 
-async def retrieve_passages(text: str, content_type: str) -> List[str]:
-    """RAG retriever used by the evaluators. Best-effort; returns [] if empty."""
-    if not settings.rag_enabled or get_store().count() == 0:
-        return []
+def _retrieve_sync(text: str, content_type: str) -> List[str]:
+    """Embed the query and search the store. Pure CPU, no awaits."""
     query_vec = embed([text[:2000]])[0]
-    hits = get_store().search(query_vec, top_k=settings.rag_top_k, content_type=content_type)
+    hits = get_store().search(
+        query_vec, top_k=settings.rag_top_k, content_type=content_type
+    )
     # Only keep reasonably-relevant passages.
     return [h.text for h in hits if h.score > 0.05]
+
+
+async def retrieve_passages(text: str, content_type: str) -> List[str]:
+    """RAG retriever used by the evaluators. Best-effort; returns [] if empty.
+
+    The embed-and-search is synchronous CPU work that scales with the corpus:
+    measured at 13 ms for 551 chunks and 38 ms for 1671. Running it inline
+    stalled the whole event loop for that long on every evaluation, so every
+    other in-flight request waited too, however unrelated. It is handed to a
+    worker thread instead.
+    """
+    if not settings.rag_enabled or get_store().count() == 0:
+        return []
+    return await asyncio.to_thread(_retrieve_sync, text, content_type)
