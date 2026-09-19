@@ -10,6 +10,12 @@ from typing import Dict, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
+
+# Evaluations considered when building each document's trajectory. The tracker
+# shows first/latest score and a revision count, so a bounded recent window is
+# sufficient and keeps the query flat as history grows.
+MAX_EVALUATIONS = 5000
 
 from app.db.models import Document, Evaluation, User
 from app.scoring.constitution import integrity_verdict
@@ -32,7 +38,15 @@ def _sla_out(doc: Optional[Document]) -> dict:
 
 async def list_documents(session: AsyncSession) -> List[dict]:
     docs = (await session.execute(select(Document))).scalars().all()
-    evals = (await session.execute(select(Evaluation))).scalars().all()
+    # `result` is the full stored scorecard (10-50 kB per row) and nothing here
+    # reads it — only scores, readiness and timestamps. Deferring it turns a
+    # multi-megabyte fetch into a cheap one.
+    evals = (await session.execute(
+        select(Evaluation)
+        .options(defer(Evaluation.result))
+        .order_by(Evaluation.created_at.desc())
+        .limit(MAX_EVALUATIONS)
+    )).scalars().all()
     users = {u.id: u for u in (await session.execute(select(User))).scalars().all()}
 
     by_doc: Dict[str, List[Evaluation]] = defaultdict(list)

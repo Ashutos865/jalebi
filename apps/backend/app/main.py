@@ -70,8 +70,14 @@ async def lifespan(app: FastAPI):
                         "Ignoring invalid rubric override for %s: %s",
                         row.content_type, exc,
                     )
-    except Exception as e:  # keep the API up even if the DB is unreachable
-        print(f"[Jalebi] DB init skipped: {e}")
+    except Exception:  # keep the API up even if the DB is unreachable
+        # Logged with a traceback, not printed: a failed reindex leaves the
+        # vector store silently empty and RAG quietly stops working, which is
+        # very hard to notice from the outside.
+        logging.getLogger("jalebi").exception(
+            "Startup database initialisation failed — continuing without it. "
+            "RAG retrieval and admin rubric overrides may be unavailable."
+        )
     yield
 
 

@@ -1,17 +1,28 @@
 """Analytics — aggregates over the evaluation history.
 
-Computed in Python from the fetched rows: portable across SQLite/Postgres and plenty
-fast at TIES' ~100-user scale. Powers the founder/editor dashboard and /api/analytics.
+Aggregated in Python over a bounded, recent window rather than the whole table.
+The previous version issued `SELECT *` over every evaluation on each dashboard
+load, which pulled the full stored scorecard (10-50 kB of JSON per row) into
+memory; the `result` column is now deferred and only sampled where it is
+actually needed. Portable across SQLite/Postgres, and bounded regardless of how
+much history accumulates.
 """
 from __future__ import annotations
 
 from collections import Counter, defaultdict
 from typing import Dict, List
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from app.db.models import Evaluation, User
+
+# Most recent evaluations aggregated per dashboard load. Well above TIES' volume,
+# and it keeps the query flat as history grows.
+MAX_ROWS = 2000
+# Smaller window for the critical-issue breakdown, which needs the JSON blob.
+ISSUE_SAMPLE = 300
 
 
 def _avg(nums: List[int]) -> float:
@@ -19,11 +30,30 @@ def _avg(nums: List[int]) -> float:
 
 
 async def overview(session: AsyncSession) -> Dict:
-    rows = (await session.execute(select(Evaluation))).scalars().all()
-    users = {u.id: u for u in (await session.execute(select(User))).scalars().all()}
-    total = len(rows)
+    # Counted in SQL rather than in Python: an empty deployment must not pay for
+    # a full scan just to learn there is nothing to report.
+    total = (await session.execute(
+        select(func.count()).select_from(Evaluation)
+    )).scalar_one()
     if total == 0:
         return {"total_evaluations": 0, "empty": True}
+
+    # `result` holds the complete EvaluationResult — realistically 10-50 kB per
+    # row — and only its critical_issues list is read below. Deferring it keeps
+    # a dashboard load from pulling every stored scorecard into memory.
+    rows = (await session.execute(
+        select(Evaluation)
+        .options(defer(Evaluation.result))
+        .order_by(Evaluation.created_at.desc())
+        .limit(MAX_ROWS)
+    )).scalars().all()
+    # Critical issues come from a separate, smaller query over recent rows only.
+    issue_rows = (await session.execute(
+        select(Evaluation.result)
+        .order_by(Evaluation.created_at.desc())
+        .limit(ISSUE_SAMPLE)
+    )).scalars().all()
+    users = {u.id: u for u in (await session.execute(select(User))).scalars().all()}
 
     scores = [r.overall_score for r in rows]
     ready = sum(1 for r in rows if r.publication_ready)
@@ -40,10 +70,10 @@ async def overview(session: AsyncSession) -> Dict:
 
     readiness = Counter(r.publication_readiness for r in rows)
 
-    # Most common critical issues across all evaluations.
+    # Most common critical issues, over the recent sample.
     issue_counter: Counter = Counter()
-    for r in rows:
-        for issue in (r.result or {}).get("critical_issues", []):
+    for result in issue_rows:
+        for issue in (result or {}).get("critical_issues", []):
             issue_counter[issue.get("problem", "")] += 1
 
     # Writer performance.
@@ -81,9 +111,12 @@ async def overview(session: AsyncSession) -> Dict:
     ][-30:]
 
     return {
+        # `total` is the true row count; every rate below is computed over the
+        # analysed window, so they must divide by len(rows), not by total.
         "total_evaluations": total,
+        "analysed": len(rows),
         "avg_score": _avg(scores),
-        "pass_rate": round(ready / total * 100, 1),
+        "pass_rate": round(ready / len(rows) * 100, 1) if rows else 0.0,
         "readiness_breakdown": dict(readiness),
         "by_content_type": [
             {"content_type": ct, "count": len(s), "avg_score": _avg(s),
