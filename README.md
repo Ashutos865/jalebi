@@ -109,6 +109,7 @@ jalebi/
 | [PRODUCT.md](PRODUCT.md) | Market analysis and what a public version would require |
 | [PLAN.md](PLAN.md) | The hardening work, with measured findings |
 | [AUDIT_ROUNDS.md](AUDIT_ROUNDS.md) | Later audit rounds: what was found, and what is still not fixed |
+| [FEATURE_AUDIT.md](FEATURE_AUDIT.md) | Every feature probed live: what is strong, weak or missing |
 | [SOP_IMPLEMENTATION.md](SOP_IMPLEMENTATION.md) | How the TIES Content SOP maps onto the system |
 
 ## Tests
